@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
   pages: write
   id-token: write
@@ -30,6 +30,17 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+      - name: Publicar bundle também no repositório
+        run: |
+          mkdir -p release/meu-tradutor
+          cp dist/meu-tradutor/index.js dist/meu-tradutor/manifest.json release/meu-tradutor/
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add release/meu-tradutor
+          if ! git diff --cached --quiet; then
+            git commit -m 'Publicar bundle compilado do Meu Tradutor'
+            git push origin HEAD:main
+          fi
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -48,6 +59,8 @@ jobs:
           done
           echo 'Artefato não disponível para publicação.' >&2
           exit 1
+      - name: Aguardar propagação no serviço Pages
+        run: sleep 25
       - name: Publicar no GitHub Pages
         id: publicacao
         uses: actions/deploy-pages@v4

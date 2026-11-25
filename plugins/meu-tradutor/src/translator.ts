@@ -286,8 +286,8 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
         candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
       }>("https://generativelanguage.googleapis.com/v1beta/models/" + modelName
         + ":generateContent", { "x-goog-api-key": apiKey }, {
-        systemInstruction: { parts: [{ text: instructions }] },
-        contents: [{ role: "user", parts: [{ text: protectedText.text }] }],
+        ...(!/^gemma-/i.test(model.replace(/^models\//, "")) ? { systemInstruction: { parts: [{ text: instructions }] } } : {}),
+        contents: [{ role: "user", parts: [{ text: /^gemma-/i.test(model.replace(/^models\//, "")) ? instructions + "\n\nMensagem para tradução:\n" + protectedText.text : protectedText.text }] }],
         generationConfig: {},
       }, config);
       const candidate = response?.candidates?.[0];

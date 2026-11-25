@@ -240,11 +240,11 @@ const mockVendetta = {
     findByName: name => name === "RowManager" ? mockRowManager : undefined,
     findByPropsAll: () => [mockActions],
     find: () => undefined,
-    findByStoreName: name => name === "MessageStore" ? mockStore : name === "SelectedChannelStore" ? selectedStore : undefined,
+    findByStoreName: name => name === "MessageStore" ? mockStore : name === "SelectedChannelStore" ? selectedStore : name === "UserStore" ? { getCurrentUser: () => ({ id: "self" }) } : undefined,
   },
   plugin: { storage: {} },
   patcher: {
-    before(property, target, hook) { if (typeof target[property] !== "function") throw new Error("before target"); patched.push(property); return () => {}; },
+    before(property, target, hook) { if (typeof target[property] !== "function") throw new Error("before target"); patched.push(property); const original = target[property]; target[property] = function(...args) { return original.apply(this, hook(args) ?? args); }; return () => { target[property] = original; }; },
     instead(property, target, hook) { if (typeof target[property] !== "function") throw new Error("instead target"); patched.push(property); const original = target[property]; target[property] = function(...args) { return hook(args, original.bind(this)); }; return () => { target[property] = original; }; }
   },
   ui: { toasts: { showToast: text => warnings.push(text) } },
@@ -281,7 +281,7 @@ for (const theme of ["neobrutal-light", "kaiju-dark"]) {
     renderTree(settingsRoot);
   }
 }
-testedPlugin.onUnload();
+await testedPlugin.onUnload();
 await new Promise(resolve => setTimeout(resolve, 20));
 if (currentMessage.content !== "Good morning" || currentSecond.content !== "Good night") throw new Error("Originais não restaurados");
 // Verify a quota rejection stops subsequent history requests, rather than
@@ -300,7 +300,7 @@ rowManager.generate({ rowType: 1, message: sampleMessage });
 await new Promise(resolve => setTimeout(resolve, 100));
 Date.now = realNow;
 if (resumed !== 2 || currentMessage.content !== "Bom dia" || currentSecond.content !== "Boa noite") throw new Error("A fila não retomou as mensagens após a pausa: " + resumed);
-testedPlugin.onUnload();
+await testedPlugin.onUnload();
 console.log("POLYZILLA: recuperação do histórico após HTTP 429 aprovada.");
 globalThis.fetch = realFetch;
 console.log("POLYZILLA: bloqueio de fila após HTTP 429 aprovado.");

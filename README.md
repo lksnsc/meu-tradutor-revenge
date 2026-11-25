@@ -38,7 +38,7 @@ Os atalhos ignoram o filtro e o modo automático. Em uma falha de tradução, o 
 
 | Provedor | Modelo padrão ou configuração |
 | --- | --- |
-| Gemini | gemini-2.5-flash |
+| Gemini | gemini-3.5-flash-lite (catálogo dinâmico) |
 | DeepL | Chaves terminadas em :fx usam a API Free |
 | OpenAI | gpt-4o-mini |
 | DeepSeek | deepseek-chat |
@@ -49,7 +49,7 @@ Os modelos disponíveis dependem do provedor e da conta. Se um modelo deixar de 
 
 ## Funcionamento e dados
 
-A tradução recebida é aplicada à cópia da mensagem usada na renderização. O armazenamento de mensagens do Discord recebe apenas o objeto original ao solicitar uma atualização local da tela. Desligar a tradução ou desativar o plugin restaura a exibição original. **Retraduzir mensagens exibidas** limpa o cache da sessão e refaz as traduções se a função estiver ativa.
+A tradução recebida é aplicada à cópia da mensagem usada na renderização e, quando necessário, por um evento Flux local. O texto original é mantido na sessão para restauração. Outros plugins que monitoram edições locais podem observar esses eventos. Não é enviada solicitação de edição ao servidor. Desligar a tradução ou desativar o plugin restaura a exibição original. **Retraduzir mensagens exibidas** limpa o cache da sessão e refaz as traduções se a função estiver ativa.
 
 O provedor selecionado recebe o texto a traduzir. O plugin mascara menções, URLs, código e delimitadores de formatação antes da chamada e os restaura após validar a resposta. A chave fica na persistência local do plugin no cliente modificado. O campo de edição oculta os caracteres na tela. Chaves, mensagens e traduções ficam fora dos arquivos gerados pelo build. O cache e os contadores da aba **Estatísticas** duram apenas a sessão do plugin. Chamadas podem consumir cota do provedor.
 

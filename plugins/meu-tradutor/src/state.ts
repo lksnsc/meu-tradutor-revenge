@@ -1,6 +1,6 @@
 import { storage as pluginStorage } from "@vendetta/plugin";
 import { findByProps, findByStoreName } from "@vendetta/metro";
-import { DEFAULT_MODELS, type LangCode, type ModelProvider, type ProviderId } from "./translator";
+import { DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ModelProvider, type ProviderId } from "./translator";
 
 export type FilterMode = "all" | "whitelist" | "blacklist";
 
@@ -58,6 +58,12 @@ export function initializeSettings(): void {
   storage.customEndpoint ??= "";
   storage.apiKeys ??= { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
   storage.models ??= { ...DEFAULT_MODELS };
+  if (!(storage.provider in PROVIDER_NAMES)) storage.provider = "gemini";
+  if (!(storage.targetLang in LANG_NAMES)) storage.targetLang = "PT-BR";
+  if (!(storage.outgoingLang in LANG_NAMES)) storage.outgoingLang = "EN";
+  if (!["all", "whitelist", "blacklist"].includes(storage.filterMode)) storage.filterMode = "whitelist";
+  if (!Array.isArray(storage.filterChannels)) storage.filterChannels = [];
+  if (!Array.isArray(storage.filterGuilds)) storage.filterGuilds = [];
 }
 
 function findStore<T>(name: string, method: string): T | undefined {
@@ -94,6 +100,8 @@ export function shouldTranslateChannel(channelId?: string, isOutgoing = false): 
   if ((isOutgoing && !storage.applyFilterToOutgoing) || storage.filterMode === "all") return true;
 
   const guildId = channelId ? stores.channels?.getChannel(channelId)?.guild_id : undefined;
+  if (!channelId) return false;
+  if (storage.filterMode === "blacklist" && storage.filterGuilds.length && !stores.channels) return false;
   const listed = (channelId !== undefined && storage.filterChannels.includes(channelId))
     || (guildId !== undefined && storage.filterGuilds.includes(guildId));
   return storage.filterMode === "whitelist" ? listed : !listed;
@@ -101,6 +109,10 @@ export function shouldTranslateChannel(channelId?: string, isOutgoing = false): 
 
 export interface Stats {
   queued: number;
+  storeApplied: number;
+  rowCalls: number;
+  captureStatus: string;
+  apiStatus: string;
   enabled: boolean;
   providerModel: string;
   observed: number;

@@ -1,6 +1,6 @@
 import { findByName, findByProps, findByPropsAll, find } from "@vendetta/metro";
 import { FluxDispatcher } from "@vendetta/metro/common";
-import { instead } from "@vendetta/patcher";
+import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
@@ -36,7 +36,7 @@ const inFlight = new Set<string>();
 const queue = new Set<string>();
 const pendingRenders = new Set<string>();
 const statsListeners = new Set<(stats: Stats) => void>();
-const emptyStats: Stats = { queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+const emptyStats: Stats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "Não testada nesta sessão", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
 
 let stats = { ...emptyStats };
 let statsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -90,13 +90,14 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
     customEndpoint: storage.customEndpoint,
     signal,
     onRequest: () => {
+      sessionStats.apiStatus = "Solicitação em andamento";
       started = true;
       sessionStats.apiCalls++;
       sessionStats.pending++;
       notifyStats();
     },
-  }).catch((error: unknown) => {
-    if (!signal.aborted) { sessionStats.errors++; sessionStats.lastError = describeError(error); }
+  }).then(result => { if (!signal.aborted) sessionStats.apiStatus = "Resposta válida recebida"; return result; }).catch((error: unknown) => {
+    if (!signal.aborted) { sessionStats.errors++; sessionStats.lastError = describeError(error); sessionStats.apiStatus = "Falha: " + describeError(error); }
     throw error;
   }).finally(() => {
     if (started) sessionStats.pending--;
@@ -105,7 +106,7 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
 }
 
 function cacheKey(id: string): string {
-  return id + ":" + storage.provider + ":" + storage.targetLang;
+  return id + ":" + storage.provider + ":" + storage.targetLang + ":" + (storage.provider === "deepl" ? "" : storage.models[storage.provider]);
 }
 
 function removeCached(key: string): void {
@@ -129,16 +130,17 @@ function getCached(key: string, source: string): string | undefined {
   return translationCache.get(key);
 }
 
-function dispatchMessage(original: Message, verify?: { id: string; channelId: string; expected: string }): void {
+function dispatchMessage(original: Message, verify?: { id: string; channelId: string; expected: string }): Promise<void> {
   try {
     const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
-    void Promise.resolve(dispatched).then(() => {
+    return Promise.resolve(dispatched).then(() => {
       if (!verify || !outgoingController) return;
       const observed = visibleMessages.get(verify.id);
       const current = stores.messages?.getMessage(verify.channelId, verify.id);
-      if (current?.content === verify.expected && observed && !observed.translated) { observed.translated = true; stats.rendered++; notifyStats(); }
+      if (current?.content === verify.expected && observed) { stats.storeApplied++; notifyStats(); }
+      else { stats.lastError = "Discord não confirmou a atualização no MessageStore."; notifyStats(); }
     }).catch(error => { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); });
-  } catch (error) { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); }
+  } catch (error) { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); return Promise.resolve(); }
 }
 
 function readOriginal(channelId: string, id: string, fallback?: Message): Message | undefined {
@@ -150,15 +152,19 @@ function readOriginal(channelId: string, id: string, fallback?: Message): Messag
     return current;
   } catch { return fallback; }
 }
-function restoreLocal(): void {
-  for (const [id, applied] of appliedLocally) {
+async function restoreLocal(): Promise<void> {
+  const entries = Array.from(appliedLocally.entries());
+  for (const entry of entries) {
+    const id = entry[0], applied = entry[1];
     try {
       const current = stores.messages?.getMessage(applied.channelId, id);
-      // Never overwrite a real edit received after the local translation.
-      if (current?.content === applied.translated) dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+      if (current?.content === applied.translated) {
+        await dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+      }
+      const after = stores.messages?.getMessage(applied.channelId, id);
+      if (appliedLocally.get(id) === applied && after?.content !== applied.translated) appliedLocally.delete(id);
     } catch {}
   }
-  appliedLocally.clear();
 }
 function scheduleRender(id: string): void {
   pendingRenders.add(id);
@@ -192,15 +198,15 @@ function scheduleRender(id: string): void {
 }
 
 function canTranslateIncoming(message: ObservedMessage): boolean {
-  if (!storage.autoTranslate || !shouldTranslateChannel(message.channelId)) return false;
+  if (!storage.autoTranslate || !isSelected(message.channelId) || !shouldTranslateChannel(message.channelId)) return false;
   const userId = stores.users?.getCurrentUser()?.id;
-  if (storage.ignoreOwnMessages && userId && message.message.author?.id === userId) return false;
+  if (storage.ignoreOwnMessages && (!userId || !message.message.author?.id || message.message.author.id === userId)) return false;
   return hasTranslatableText(message.source);
 }
 
 function isSelected(channelId: string): boolean {
   const selected = stores.selectedChannel?.getChannelId();
-  return !selected || selected === channelId;
+  return typeof selected === "string" && selected === channelId;
 }
 
 function startTranslation(id: string, controller: AbortController, session: AbortController): void {
@@ -224,6 +230,12 @@ function startTranslation(id: string, controller: AbortController, session: Abor
     if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
       const temporary = (error instanceof TranslationRequestError && (error.status === 429 || error.status === 503)) || !!translationPause(storage.provider, storage.provider === "deepl" ? undefined : storage.models[storage.provider]);
       const attempt = retries.get(key) ?? 0;
+      if (error instanceof TranslationRequestError && [400, 401, 402, 403, 404].includes(error.status)) {
+        stats.apiStatus = "Configuração rejeitada; corrija na aba API e reative";
+        incomingController?.abort();
+        queue.clear();
+        return;
+      }
       if (temporary && attempt < 2) {
         retries.set(key, attempt + 1);
         queue.add(id);
@@ -244,7 +256,7 @@ function startTranslation(id: string, controller: AbortController, session: Abor
 function pumpQueue(): void {
   const controller = incomingController;
   const session = outgoingController;
-  if (!controller || !session || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
+  if (!controller || controller.signal.aborted || !session || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
   const model = storage.provider === "deepl" ? undefined : storage.models[storage.provider];
   const pause = translationPause(storage.provider, model);
   if (pause) return;
@@ -281,7 +293,8 @@ function observeMessage(message: Message, channelId: string): ObservedMessage | 
   return observed;
 }
 
-function interceptRow(args: [MessageRow?, ...unknown[]], original: (...args: [MessageRow?, ...unknown[]]) => unknown): unknown {
+function interceptRow(args: [MessageRow?, ...unknown[]]): [MessageRow?, ...unknown[]] {
+  stats.rowCalls++;
   try {
     const row = args[0];
     const message = row?.message;
@@ -302,21 +315,26 @@ function interceptRow(args: [MessageRow?, ...unknown[]], original: (...args: [Me
       }
     }
   } catch (error) { stats.lastError = "Renderização: " + describeError(error); notifyStats(); }
-  return original(...args);
+  return args;
 }
 
 // A second input surface covers existing history and new messages without
 // depending on the RowManager name or on its argument shape.
 function scanSelectedChannel(): void {
-  if (!outgoingController || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
+  if (!outgoingController) return;
+  if (!storage.autoTranslate) { stats.captureStatus = "Tradução automática desligada"; notifyStats(); return; }
+  if (!storage.apiKeys[storage.provider]?.trim()) { stats.captureStatus = "Chave de API não configurada"; notifyStats(); return; }
   try {
-    if (!stores.selectedChannel || !stores.messages?.getMessages) findStores();
+    if (!stores.selectedChannel || !stores.messages?.getMessages || !stores.users) findStores();
     const channelId = stores.selectedChannel?.getChannelId();
-    if (!channelId || !shouldTranslateChannel(channelId)) return;
+    if (!channelId) { stats.captureStatus = "Canal selecionado não localizado"; notifyStats(); return; }
+    if (!shouldTranslateChannel(channelId)) { stats.captureStatus = "Canal bloqueado pelo filtro"; notifyStats(); return; }
+    if (storage.ignoreOwnMessages && !stores.users?.getCurrentUser()?.id) { findStores(); if (!stores.users?.getCurrentUser()?.id) { stats.captureStatus = "UserStore indisponível; captura suspensa para respeitar filtro de autoria"; notifyStats(); return; } }
     const raw = stores.messages?.getMessages?.(channelId) as { toArray?(): unknown; _array?: unknown; messages?: unknown; getMessages?(): unknown; } | undefined;
-    if (!raw) return;
+    if (!raw) { stats.captureStatus = "Histórico indisponível no MessageStore"; notifyStats(); return; }
     const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : typeof raw.getMessages === "function" ? raw.getMessages() : raw._array ?? raw.messages;
-    if (!Array.isArray(list)) return;
+    if (!Array.isArray(list)) { stats.captureStatus = "Formato de histórico não reconhecido"; notifyStats(); return; }
+    stats.captureStatus = "Histórico reconhecido (" + list.length + " registros)";
     const recent = list.slice(-30);
     for (const message of recent) {
       if (message && typeof message.id === "string" && (message.channel_id ?? message.channelId ?? channelId) === channelId)
@@ -329,14 +347,16 @@ function scanSelectedChannel(): void {
   finally { pumpQueue(); }
 }
 
-function refreshIncoming(resetCache = false): void {
+async function refreshIncoming(resetCache = false): Promise<void> {
   if (!incomingController) return;
   incomingController.abort();
-  restoreLocal();
-  incomingController = new AbortController();
+  const controller = new AbortController();
+  incomingController = controller;
   queue.clear();
   failed.clear();
   retries.clear();
+  await restoreLocal();
+  if (incomingController !== controller || controller.signal.aborted) return;
 
   if (resetCache) {
     translationCache.clear();
@@ -442,9 +462,8 @@ function installHooks(attempt: number): void {
       if (!prototype) prototype = rowPrototype(findByName("RowManager", false));
       if (!prototype) prototype = rowPrototype(find(value => Boolean(rowPrototype(value))));
       if (!prototype) throw new Error("RowManager.generate não localizado");
-      if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch não localizado");
-      const undo = instead("generate", prototype, interceptRow);
-      if (typeof undo !== "function") throw new Error("patcher.instead não retornou função de remoção");
+      const undo = before("generate", prototype, interceptRow);
+      if (typeof undo !== "function") throw new Error("patcher.before não retornou função de remoção");
       unpatchRowManager = undo;
       stats.incomingStatus = "Interceptação instalada";
     } catch (error) { incomingError = describeError(error); stats.incomingStatus = incomingError; }
@@ -470,7 +489,7 @@ function installHooks(attempt: number): void {
   if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
 }
 
-function onUnload(): void {
+async function onUnload(): Promise<void> {
   if (scanTimer !== undefined) clearInterval(scanTimer);
   scanTimer = undefined;
   if (hookRetry !== undefined) clearTimeout(hookRetry);
@@ -483,11 +502,11 @@ function onUnload(): void {
   outgoingController?.abort();
   incomingController = undefined;
   outgoingController = undefined;
-  restoreLocal();
   if (renderTimer !== undefined) clearTimeout(renderTimer);
   if (statsTimer !== undefined) clearTimeout(statsTimer);
   renderTimer = undefined;
   statsTimer = undefined;
+  await restoreLocal();
 
   visibleMessages.clear();
   translationCache.clear();

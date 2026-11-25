@@ -376,7 +376,7 @@ function ProviderFields({
         storage.autoTranslate = true;
         onIncomingChange(true);
       }
-      setTestResult("Resposta da API: " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
+      setTestResult("Resposta da API (" + (model.trim() || provider) + "): " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
     } catch (error) {
       setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
     } finally { setTesting(false); }
@@ -475,8 +475,12 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
     ["Mensagens aguardando tradução", stats.queued],
     ["Motor de recebimento", stats.incomingStatus],
     ["Motor de envio", stats.outgoingStatus],
-    ["Eventos de exibição capturados", stats.observed],
-    ["Traduções aplicadas na tela", stats.rendered],
+    ["Mensagens únicas capturadas", stats.observed],
+    ["Chamadas ao renderizador", stats.rowCalls],
+    ["Traduções entregues ao renderizador", stats.rendered],
+    ["Atualizações confirmadas no armazenamento local", stats.storeApplied],
+    ["Diagnóstico de captura", stats.captureStatus],
+    ["Diagnóstico da API", stats.apiStatus],
     ["Último erro da tradução", stats.lastError || "Nenhum registrado"],
     ["Chamadas à API", stats.apiCalls],
     ["Requisições em andamento", stats.pending],

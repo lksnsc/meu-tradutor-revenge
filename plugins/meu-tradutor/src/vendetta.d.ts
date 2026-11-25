@@ -79,7 +79,7 @@ declare module "@vendetta/metro/common" {
 
 declare module "@vendetta/patcher" {
   export function before<A extends unknown[], R>(
-    property: string, object: object, hook: (args: A) => void,
+    property: string, object: object, hook: (args: A) => void | A,
   ): () => void;
   export function instead<A extends unknown[], R>(
     property: string, object: object, hook: (args: A, original: (...args: A) => R) => R,

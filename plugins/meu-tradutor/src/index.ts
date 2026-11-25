@@ -389,15 +389,12 @@ function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown)
     return original(...args);
   }
 
-  // Accept leading whitespace and standalone bracketed headers, not commands embedded in prose or code.
-  const prefix = /^((?:[ \t]*\[[^\]\r\n]{1,80}\][ \t]*(?:\r?\n|$)|[ \t]*\r?\n)*[ \t]*)!(raw|en|es|pt)(?:[ \t]+|[ \t]*\r?\n)([\s\S]*\S[\s\S]*)$/i.exec(content);
-  const header = prefix?.[1] ?? "";
-  const shortcut = prefix?.[2].toLowerCase();
-  const source = prefix?.[3] ?? content;
-  const send = (text: string) => {
-    const finalText = header + text;
-    return finalText === content ? original(...args) : original(channelId, { ...message, content: finalText }, ...options);
-  };
+  const prefix = /^\s*!(raw|en|es|pt)(?:[ \t]+|[ \t]*\r?\n)([\s\S]*\S[\s\S]*)$/i.exec(content);
+  const shortcut = prefix?.[1].toLowerCase();
+  const source = prefix?.[2] ?? content;
+  const send = (text: string) => text === content
+    ? original(...args)
+    : original(channelId, { ...message, content: text }, ...options);
 
   if (shortcut === "raw") return send(source);
   if (shortcut && !shouldTranslateChannel(channelId, true)) {

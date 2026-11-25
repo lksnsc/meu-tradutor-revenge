@@ -133,7 +133,7 @@ function Translation({ onIncomingChange, onRetranslate }: SettingsProps): JSX.El
         <Options labels={LANG_NAMES} value={storage.outgoingLang} onChange={(value: LangCode) => {
           storage.outgoingLang = value;
         }} />
-        <Text style={styles.hint}>!en inglês · !es espanhol · !pt português (BR) · !raw texto original. Os atalhos funcionam mesmo com a tradução automática desligada, respeitam os filtros de envio e podem vir após um cabeçalho como [TEST] em linha separada.</Text>
+        <Text style={styles.hint}>!en inglês · !es espanhol · !pt português (BR) · !raw texto original. Os atalhos funcionam mesmo com a tradução automática desligada e respeitam os filtros de envio. Digite o comando no início da mensagem. Para enviar sem comando, ligue Traduzir ao enviar e selecione o modo automático.</Text>
       </Section>
     </View>
   );

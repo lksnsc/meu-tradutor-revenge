@@ -309,6 +309,20 @@ export function translateText(text: string, config: TranslatorConfig): Promise<s
     const source = config.sourceLang || "EN";
     if (!codes[source] || !codes[targetLang]) throw new Error("Idioma de origem ou destino inválido.");
     if (source === targetLang) return Promise.resolve(text);
+    // M2M100 may drop adjacent formatting placeholders in multiline text.
+    // Keep physical line separators outside the model. Do not split fenced code.
+    if (/[\r\n]/.test(text) && !/\x60{3,}/.test(text)) {
+      const parts = text.split(/(\r\n|\n|\r)/);
+      let chain = Promise.resolve("");
+      for (const part of parts) {
+        chain = chain.then(output => {
+          if (config.signal?.aborted) throw new TranslationRequestError("Tradução cancelada.");
+          if (!hasTranslatableText(part)) return output + part;
+          return translateText(part, config).then(value => output + value);
+        });
+      }
+      return chain;
+    }
     return postJson<{success?: boolean; result?: {translated_text?: string}; errors?: {code?: number}[]}>(
       "https://api.cloudflare.com/client/v4/accounts/" + account + "/ai/run/" + DEFAULT_MODELS.cloudflare,
       { Authorization: "Bearer " + apiKey },

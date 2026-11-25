@@ -79,8 +79,9 @@ globalThis.fetch=async(url,init)=>{
     const body=JSON.parse(init.body);
     assert.equal(init.headers.Authorization,"Bearer synthetic-cloudflare");
     if (body.source_lang==="pt" && body.target_lang==="en") {
-      assert.equal(body.text,"Pronto.ZXQDISCORD0QXZEm tempo real.");
-      return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:"Ready.ZXQDISCORD0QXZIn real time."},errors:[]})};
+      const translated={"Pronto.":"Ready.","Em tempo real.":"In real time.","Olá":"Hello"}[body.text];
+      assert.ok(translated,body.text);
+      return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:translated},errors:[]})};
     }
     assert.equal(body.source_lang,"en"); assert.equal(body.target_lang,"pt");
     assert.equal(body.text,"Good morning, how are you?");
@@ -200,11 +201,14 @@ try {
   assert.ok(hasText("HTTP 200"));
   await act(async()=>press("Salvar API"));
   assert.equal(storage.cloudflareAccountId,"a".repeat(32));
-  assert.equal(await actions.sendMessage("1",{content:"[TEST]\n\n!en Pronto.\n\nEm tempo real."}),"[TEST]\n\nReady.\n\nIn real time.");
-  assert.equal(sends.at(-1).content,"[TEST]\n\nReady.\n\nIn real time.");
-  assert.equal(actions.sendMessage("1",{content:"[TEST]\n\n!raw Olá"}),"[TEST]\n\nOlá");
-  assert.equal(actions.sendMessage("2",{content:"[TEST]\n\n!en Olá"}),"[TEST]\n\nOlá");
-  assert.equal(actions.sendMessage("1",{content:"Texto normal\n!en Olá"}),"Texto normal\n!en Olá");
+  assert.equal(await actions.sendMessage("1",{content:"!en Pronto.\n\nEm tempo real."}),"Ready.\n\nIn real time.");
+  assert.equal(sends.at(-1).content,"Ready.\n\nIn real time.");
+  assert.equal(actions.sendMessage("1",{content:"!raw Olá"}),"Olá");
+  assert.equal(actions.sendMessage("2",{content:"!en Olá"}),"Olá");
+  storage.translateOutgoing=true; storage.outgoingOnlyWithPrefix=false; storage.outgoingLang="EN";
+  assert.equal(await actions.sendMessage("1",{content:"Olá"}),"Hello");
+  assert.equal(actions.sendMessage("2",{content:"Olá"}),"Olá");
+  storage.translateOutgoing=false;
   await act(async()=>press("Estatísticas"));
   assert.ok(settings.root.findAllByType("View").some(x=>x.props.style?.flexDirection==="column" && x.props.style?.alignItems==="stretch"));
   assert.ok(hasText("Provedor / modelo salvo")); 

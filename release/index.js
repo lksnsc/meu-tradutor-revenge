@@ -81,19 +81,27 @@ var __plugin = (() => {
     const Probe = /* @__PURE__ */ __name(() => null, "Probe");
     const probe = Reflect.apply(methods.createElement, value, [Probe, { test: 1 }]);
     if (!probe || probe.type !== Probe && probe.component !== Probe || probe.props?.test !== 1) return;
-    const result = {};
-    for (const key of reactKeys) {
-      const fn = methods[key];
-      result[key] = (...args) => {
-        try {
-          const output = Reflect.apply(fn, value, args);
-          if (key === "useState" && typeof output?.[1] !== "function") throw new Error("retorno sem setter v\xE1lido");
-          return output;
-        } catch (error) {
-          throw new Error("POLYZILLA React." + key + ": " + String(error?.message ?? error));
-        }
-      };
-    }
+    const createElement = methods.createElement;
+    const useState = methods.useState;
+    const useEffect = methods.useEffect;
+    const useReducer = methods.useReducer;
+    const result = {
+      createElement: /* @__PURE__ */ __name(function polyzillaCreateElement(...args) {
+        return Reflect.apply(createElement, value, args);
+      }, "polyzillaCreateElement"),
+      useState: /* @__PURE__ */ __name(function polyzillaUseState(initial) {
+        const output = Reflect.apply(useState, value, [initial]);
+        if (typeof output?.[1] !== "function") throw new Error("POLYZILLA useState: setter inv\xE1lido.");
+        return output;
+      }, "polyzillaUseState"),
+      useEffect: /* @__PURE__ */ __name(function polyzillaUseEffect(effect, deps) {
+        return Reflect.apply(useEffect, value, [effect, deps]);
+      }, "polyzillaUseEffect"),
+      useReducer: /* @__PURE__ */ __name(function polyzillaUseReducer(reducer, initial, init) {
+        if (typeof reducer !== "function") throw new Error("POLYZILLA useReducer: reducer inv\xE1lido.");
+        return Reflect.apply(useReducer, value, [reducer, initial, init]);
+      }, "polyzillaUseReducer")
+    };
     return result;
   }
   __name(captureReact, "captureReact");

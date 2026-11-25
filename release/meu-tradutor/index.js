@@ -181,8 +181,8 @@ var __plugin = (() => {
           emitter.off("DEL", refresh);
         };
       }
-      const timer = setInterval(refresh, 500);
-      return () => clearInterval(timer);
+      const timer2 = setInterval(refresh, 500);
+      return () => clearInterval(timer2);
     }, [storage3]);
     return storage3;
   }
@@ -385,12 +385,12 @@ var __plugin = (() => {
   __name(requestFailure, "requestFailure");
   function postJson(url, headers, body, config) {
     return new Promise(/* @__PURE__ */ __name(function requestExecutor(resolve, reject) {
-      const controller = new AbortController();
+      const controller2 = new AbortController();
       let finished = false;
-      let timer;
+      let timer2;
       function cleanup() {
-        if (timer !== void 0) clearTimeout(timer);
-        config.signal?.removeEventListener("abort", cancel);
+        if (timer2 !== void 0) clearTimeout(timer2);
+        config.signal?.removeEventListener("abort", cancel2);
       }
       __name(cleanup, "cleanup");
       function fail(error) {
@@ -411,19 +411,19 @@ var __plugin = (() => {
         resolve(value);
       }
       __name(succeed, "succeed");
-      function cancel() {
+      function cancel2() {
         fail(new TranslationRequestError("Tradu\xE7\xE3o cancelada."));
-        controller.abort();
+        controller2.abort();
       }
-      __name(cancel, "cancel");
+      __name(cancel2, "cancel");
       if (config.signal?.aborted) {
-        cancel();
+        cancel2();
         return;
       }
-      config.signal?.addEventListener("abort", cancel);
-      timer = setTimeout(/* @__PURE__ */ __name(function requestTimeout() {
+      config.signal?.addEventListener("abort", cancel2);
+      timer2 = setTimeout(/* @__PURE__ */ __name(function requestTimeout() {
         fail(new TranslationRequestError("Tempo limite de tradu\xE7\xE3o excedido."));
-        controller.abort();
+        controller2.abort();
       }, "requestTimeout"), REQUEST_TIMEOUT);
       try {
         config.onRequest?.();
@@ -431,7 +431,7 @@ var __plugin = (() => {
           method: "POST",
           headers: { "Content-Type": "application/json", ...headers },
           body: JSON.stringify(body),
-          signal: controller.signal
+          signal: controller2.signal
         }).then(/* @__PURE__ */ __name(function receiveResponse(response) {
           if (finished) return;
           if (!response || typeof response.ok !== "boolean") {
@@ -584,6 +584,7 @@ var __plugin = (() => {
     storage2.ignoreOwnMessages ?? (storage2.ignoreOwnMessages = true);
     storage2.targetLang ?? (storage2.targetLang = "PT-BR");
     storage2.translateOutgoing ?? (storage2.translateOutgoing = false);
+    storage2.translateDraft ?? (storage2.translateDraft = false);
     storage2.outgoingLang ?? (storage2.outgoingLang = "EN");
     storage2.outgoingOnlyWithPrefix ?? (storage2.outgoingOnlyWithPrefix = false);
     storage2.filterMode ?? (storage2.filterMode = "all");
@@ -731,7 +732,9 @@ var __plugin = (() => {
     } }), /* @__PURE__ */ React.createElement(Button, { label: "Retraduzir mensagens exibidas", onPress: () => {
       onRetranslate();
       showToast(storage2.autoTranslate ? "Retraduzindo mensagens exibidas." : "Cache limpo. A tradu\xE7\xE3o autom\xE1tica est\xE1 desligada.");
-    } })), /* @__PURE__ */ React.createElement(Section, { title: "Minhas mensagens (envio)" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Traduzir ao enviar", value: storage2.translateOutgoing, onChange: (value) => {
+    } })), /* @__PURE__ */ React.createElement(Section, { title: "Minhas mensagens (envio)" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Traduzir na caixa ap\xF3s 5 segundos", value: storage2.translateDraft, onChange: (value) => {
+      storage2.translateDraft = value;
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Ao parar de digitar por 5 segundos, texto identificado localmente como portugu\xEAs ser\xE1 enviado ao provedor selecionado e substitu\xEDdo no rascunho. Respeita os filtros de envio. Voc\xEA revisa e envia manualmente. Se enviar antes do prazo, o motor tenta traduzir no envio."), /* @__PURE__ */ React.createElement(Toggle, { label: "Traduzir ao enviar", value: storage2.translateOutgoing, onChange: (value) => {
       storage2.translateOutgoing = value;
     } }), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modo de envio"), /* @__PURE__ */ React.createElement(
       Options,
@@ -873,8 +876,8 @@ var __plugin = (() => {
   };
   async function loadGeminiModels(key) {
     if (!cleanString(key)) throw new Error("Informe sua chave de API Gemini.");
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 3e4);
+    const controller2 = new AbortController();
+    const timer2 = setTimeout(() => controller2.abort(), 3e4);
     const models = {};
     const tokens = /* @__PURE__ */ new Set();
     let token = "";
@@ -883,7 +886,7 @@ var __plugin = (() => {
         const url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" + (token ? "&pageToken=" + encodeURIComponent(token) : "");
         const response = await fetch(url, {
           headers: { "x-goog-api-key": cleanString(key) },
-          signal: controller.signal
+          signal: controller2.signal
         });
         if (!response.ok) throw new Error("Google retornou HTTP " + response.status + " ao listar modelos.");
         const page = await response.json();
@@ -900,7 +903,7 @@ var __plugin = (() => {
       } while (token);
       return models;
     } finally {
-      clearTimeout(timer);
+      clearTimeout(timer2);
     }
   }
   __name(loadGeminiModels, "loadGeminiModels");
@@ -981,15 +984,15 @@ var __plugin = (() => {
     const testApi = /* @__PURE__ */ __name((activate = false) => {
       if (testing) return;
       setTesting(true);
-      const sample = "Good morning, how are you?";
+      const sample2 = "Good morning, how are you?";
       const started = Date.now();
       let httpStatus = 0;
       let stage = "valida\xE7\xE3o";
       let actualTranslation = "";
-      setTestResult("Original (EN): " + sample + "\nConsultando o provedor...");
+      setTestResult("Original (EN): " + sample2 + "\nConsultando o provedor...");
       function reportFailure(error) {
         const detail = error instanceof Error ? error.message : String(error);
-        setTestResult("Original (EN): " + sample + "\n" + (actualTranslation ? "Tradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" : "") + (httpStatus ? "HTTP " + httpStatus + "\n" : "Sem resposta HTTP confirmada.\n") + "Falha [" + stage + "]: " + detail);
+        setTestResult("Original (EN): " + sample2 + "\n" + (actualTranslation ? "Tradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" : "") + (httpStatus ? "HTTP " + httpStatus + "\n" : "Sem resposta HTTP confirmada.\n") + "Falha [" + stage + "]: " + detail);
         setTesting(false);
       }
       __name(reportFailure, "reportFailure");
@@ -1000,7 +1003,7 @@ var __plugin = (() => {
         if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
         const nextAccount = cleanString(account);
         stage = "requisi\xE7\xE3o e tradu\xE7\xE3o";
-        const request = translateText(sample, {
+        const request = translateText(sample2, {
           provider,
           targetLang: "PT-BR",
           apiKey: nextKey,
@@ -1016,8 +1019,8 @@ var __plugin = (() => {
           stage = "valida\xE7\xE3o da resposta";
           actualTranslation = cleanString(result);
           if (!actualTranslation) throw new Error("O motor n\xE3o devolveu texto v\xE1lido (tipo: " + typeof result + ").");
-          if (actualTranslation.toLowerCase() === sample.toLowerCase()) throw new Error("O modelo n\xE3o traduziu a frase de teste.");
-          const summary = "Resposta da API (" + (nextModel || provider) + ")\nOriginal (EN): " + sample + "\nTradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" + (httpStatus ? "HTTP " + httpStatus + " \xB7 " : "") + (Date.now() - started) + " ms";
+          if (actualTranslation.toLowerCase() === sample2.toLowerCase()) throw new Error("O modelo n\xE3o traduziu a frase de teste.");
+          const summary = "Resposta da API (" + (nextModel || provider) + ")\nOriginal (EN): " + sample2 + "\nTradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" + (httpStatus ? "HTTP " + httpStatus + " \xB7 " : "") + (Date.now() - started) + " ms";
           setTestResult(summary);
           if (!activate) {
             setTesting(false);
@@ -1183,6 +1186,7 @@ var __plugin = (() => {
       ["Mensagens aguardando tradu\xE7\xE3o", stats2.queued],
       ["Motor de recebimento", stats2.incomingStatus],
       ["Motor de envio", stats2.outgoingStatus],
+      ["Tradu\xE7\xE3o na caixa de texto", stats2.draftStatus],
       ["Mensagens \xFAnicas capturadas", stats2.observed],
       ["Chamadas ao renderizador", stats2.rowCalls],
       ["Tradu\xE7\xF5es entregues ao renderizador", stats2.rendered],
@@ -1209,7 +1213,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R31"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R32"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1286,6 +1290,210 @@ var __plugin = (() => {
   }
   __name(makeStyles, "makeStyles");
 
+  // plugins/meu-tradutor/src/draft.ts
+  var DELAY = 5e3;
+  var TYPE = 0;
+  var reader;
+  var writer;
+  var timer;
+  var controller;
+  var sample;
+  var applied;
+  var activeChannel;
+  var activeConfig = "";
+  var baseline = true;
+  var lastLookup = 0;
+  var setStatus = /* @__PURE__ */ __name(() => {
+  }, "setStatus");
+  var strongPT = new Set("ol\xE1 obrigado obrigada obrigada\xE7o valeu voc\xEA voc\xEAs n\xE3o sim gente hoje amanh\xE3 ontem ent\xE3o tamb\xE9m portugu\xEAs brasileiro brasileira desculpa desculpe beleza cad\xEA t\xF4 t\xE1 n\xE9 pra pro pelo pela pelos pelas comigo contigo conosco consigo estou estamos est\xE3o estar tava estava fui sou somos s\xE3o tem temos tenho tinha t\xEAm quero queremos queria vou vamos v\xE3o vai vamo posso podemos pode consegue resolveu resolvi chegou cheguei falou fala falar fa\xE7o fazer fiz feito ainda muito muita muitos muitas mais menos mesmo mesma agora pronto pronta prontinho coisa coisas alguma algum algu\xE9m ningu\xE9m tudo nada isso isto esse essa esses essas aquele aquela aqueles aquelas aqui a\xED l\xE1 qual quais quando quanto quantos como porque pois precisa precisar preciso precisando mensagem mensagens texto tradu\xE7\xE3o tradu\xE7\xF5es traduzir traduzido enviando enviar enviado escrevi escrever escrevendo trabalhando trabalho dinheiro jogador jogo jogos compras comprar boa bom boas bons bem demais legal bacana cara pessoal galera irm\xE3o irm\xE3os porra caralho \xF3timo \xF3tima parab\xE9ns saudade sa\xFAde noite tarde dia certo certeza errado consigo conhe\xE7o sei sabe sabemos achar acho achei".split(" "));
+  var strongOther = new Set("hello thanks thank you your yours yours good morning night evening what which where when why how this that those these there their they them we are were is was have has had will would could should can cannot not yes no please ready real time and the for from with about because really very just now already everyone anybody anything everything hola gracias buenos buenas d\xEDas tardes noches usted ustedes vosotros estoy estamos est\xE1is tengo tienes tenemos quiero quieres queremos puedo puedes podemos ahora ma\xF1ana ayer entonces tambi\xE9n espa\xF1ol espa\xF1ola necesito necesitas habla hablar hablo hecho hice listo lista vale qu\xE9 qui\xE9n cu\xE1ndo d\xF3nde c\xF3mo aqu\xED all\xED muy mucho muchas muchos nuestras nuestros vuestro vuestra mensaje mensajes traducci\xF3n traducir enviar escrito escribiendo dinero jugador juego juegos comprar compras hermano salud perd\xF3n disculpe genial".split(" "));
+  function likelyPortuguese(text) {
+    const value = cleanString(text);
+    if (!value || /^[!/]/.test(value) || !hasTranslatableText(value)) return false;
+    const prose = value.toLowerCase().replace(/https?:\/\/\S+|<[^>\r\n]+>|\x60[^\x60]*\x60/g, " ");
+    const words = prose.match(/[a-zà-ÿ]+/g) ?? [];
+    let pt = 0, other = 0;
+    for (const word of words) {
+      if (strongPT.has(word)) pt += 2;
+      if (strongOther.has(word)) other += 2;
+      if (/[ãõ]|ç(?:ão|ões|a|o|u)|ções$/.test(word)) pt += 4;
+      if (/[ñ]|ción$|ciones$/.test(word)) other += 4;
+    }
+    return pt >= 2 && pt > other + (words.length > 4 ? 1 : 0);
+  }
+  __name(likelyPortuguese, "likelyPortuguese");
+  function configKey() {
+    const p = storage2.provider;
+    return JSON.stringify([storage2.translateDraft, storage2.outgoingLang, p, storage2.apiKeys?.[p], p === "deepl" ? "" : storage2.models?.[p], storage2.cloudflareAccountId, storage2.customEndpoint]);
+  }
+  __name(configKey, "configKey");
+  function allowed(channel) {
+    return !!storage2.translateDraft && storage2.outgoingLang !== "PT-BR" && !!cleanString(storage2.apiKeys?.[storage2.provider]) && shouldTranslateChannel(channel, true);
+  }
+  __name(allowed, "allowed");
+  function lookup() {
+    if (Date.now() - lastLookup < 2e3 && lastLookup !== 0) return;
+    lastLookup = Date.now();
+    try {
+      if (!reader) {
+        const candidate = findByStoreName?.("DraftStore") ?? findByProps("getDraft", "getRecentlyEditedDrafts");
+        const host = candidate;
+        if (typeof host?.getDraft === "function") reader = host;
+      }
+      if (!writer) {
+        const host = findByProps("saveDraft", "clearDraft");
+        if (typeof host?.saveDraft === "function" && typeof host?.clearDraft === "function") writer = host;
+      }
+    } catch {
+    }
+  }
+  __name(lookup, "lookup");
+  function read(channel) {
+    try {
+      const value = reader?.getDraft(channel, TYPE);
+      if (value === null || value === void 0) return reader ? "" : void 0;
+      if (typeof value === "string") return value;
+      return void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  __name(read, "read");
+  function cancel() {
+    controller?.abort();
+    controller = void 0;
+  }
+  __name(cancel, "cancel");
+  function current(candidate) {
+    return sample === candidate && stores.selectedChannel?.getChannelId() === candidate.channel && configKey() === candidate.config && allowed(candidate.channel) && read(candidate.channel) === candidate.text;
+  }
+  __name(current, "current");
+  function tick(translate2) {
+    const channel = stores.selectedChannel?.getChannelId() ?? void 0;
+    const key = configKey();
+    if (channel !== activeChannel || key !== activeConfig) {
+      cancel();
+      sample = void 0;
+      applied = void 0;
+      baseline = true;
+      activeChannel = channel;
+      activeConfig = key;
+    }
+    if (!channel || !allowed(channel)) {
+      cancel();
+      sample = void 0;
+      baseline = true;
+      setStatus(!storage2.translateDraft ? "Desativada" : !channel ? "Aguardando canal" : storage2.outgoingLang === "PT-BR" ? "Destino j\xE1 \xE9 portugu\xEAs" : "Canal ou API n\xE3o habilitados");
+      return;
+    }
+    if (!reader || !writer) lookup();
+    if (!reader || !writer) {
+      setStatus("Caixa de texto indispon\xEDvel nesta vers\xE3o do Discord");
+      return;
+    }
+    const text = read(channel);
+    if (text === void 0) {
+      cancel();
+      sample = void 0;
+      baseline = true;
+      setStatus("Formato de rascunho n\xE3o reconhecido");
+      return;
+    }
+    if (baseline) {
+      baseline = false;
+      sample = { channel, text, config: key, since: Date.now(), attempted: true };
+      setStatus("Aguardando nova digita\xE7\xE3o");
+      return;
+    }
+    if (applied?.channel === channel && applied.text === text && applied.config === key) {
+      setStatus("Tradu\xE7\xE3o no rascunho confirmada");
+      return;
+    }
+    if (sample?.text !== text) {
+      cancel();
+      applied = void 0;
+      sample = { channel, text, config: key, since: Date.now(), attempted: false };
+    }
+    const candidate = sample;
+    if (!candidate || candidate.attempted) return;
+    if (!likelyPortuguese(text)) {
+      setStatus(text ? "Portugu\xEAs n\xE3o identificado" : "Aguardando texto");
+      return;
+    }
+    const remaining = DELAY - (Date.now() - candidate.since);
+    if (remaining > 0) {
+      setStatus("Traduzindo em " + Math.ceil(remaining / 1e3) + " s");
+      return;
+    }
+    candidate.attempted = true;
+    const request = new AbortController();
+    controller = request;
+    setStatus("Traduzindo rascunho...");
+    translate2(text, storage2.outgoingLang, request.signal).then((result) => {
+      if (request.signal.aborted || !current(candidate)) return;
+      if (!cleanString(result) || result === text) {
+        setStatus("O provedor n\xE3o alterou o texto");
+        return;
+      }
+      const next = { channel, text: result, config: key };
+      applied = next;
+      return Promise.resolve(writer?.saveDraft(channel, TYPE, result)).then(() => {
+        if (request.signal.aborted || sample !== candidate || stores.selectedChannel?.getChannelId() !== channel) return;
+        if (read(channel) === result) {
+          setStatus("Tradu\xE7\xE3o no rascunho confirmada");
+          return;
+        }
+        applied = void 0;
+        setStatus("Discord n\xE3o confirmou a atualiza\xE7\xE3o da caixa");
+      });
+    }).catch(() => {
+      if (!request.signal.aborted && current(candidate)) setStatus("Falha na tradu\xE7\xE3o; texto original preservado");
+      if (applied?.channel === channel && read(channel) !== applied.text) applied = void 0;
+    }).finally(() => {
+      if (controller === request) controller = void 0;
+    });
+  }
+  __name(tick, "tick");
+  function startDraftTranslation(translate2, status) {
+    if (timer !== void 0) return;
+    setStatus = status;
+    const run = /* @__PURE__ */ __name(() => {
+      try {
+        tick(translate2);
+      } catch {
+        cancel();
+        setStatus("Caixa de texto indispon\xEDvel");
+      }
+    }, "run");
+    timer = setInterval(run, 200);
+    run();
+  }
+  __name(startDraftTranslation, "startDraftTranslation");
+  function stopDraftTranslation() {
+    if (timer !== void 0) clearInterval(timer);
+    timer = void 0;
+    cancel();
+    sample = void 0;
+    applied = void 0;
+    activeChannel = void 0;
+    activeConfig = "";
+    baseline = true;
+    lastLookup = 0;
+    reader = void 0;
+    writer = void 0;
+  }
+  __name(stopDraftTranslation, "stopDraftTranslation");
+  function draftBeforeSend(channel, text) {
+    const wasTranslated = applied?.channel === channel && applied.text === text;
+    if (activeChannel === channel) {
+      cancel();
+      sample = { channel, text: read(channel) ?? text, config: activeConfig, since: Date.now(), attempted: true };
+      applied = void 0;
+    }
+    return wasTranslated;
+  }
+  __name(draftBeforeSend, "draftBeforeSend");
+
   // plugins/meu-tradutor/src/index.ts
   var MAX_OBSERVED = 200;
   var MAX_CACHED = 500;
@@ -1300,7 +1508,7 @@ var __plugin = (() => {
   var queue = /* @__PURE__ */ new Set();
   var pendingRenders = /* @__PURE__ */ new Set();
   var statsListeners = /* @__PURE__ */ new Set();
-  var emptyStats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "N\xE3o testada nesta sess\xE3o", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+  var emptyStats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "N\xE3o testada nesta sess\xE3o", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", draftStatus: "Desativada", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
   var stats = { ...emptyStats };
   var statsTimer;
   var renderTimer;
@@ -1340,10 +1548,10 @@ var __plugin = (() => {
     }, 0);
   }
   __name(notifyStats, "notifyStats");
-  function translate(text, targetLang, signal, outgoing = false) {
+  function translate(text, targetLang, signal, outgoing = false, sourceOverride) {
     const provider = storage2.provider;
     const sessionStats = stats;
-    let started = false;
+    let started = 0;
     return translateText(text, {
       provider,
       targetLang,
@@ -1351,11 +1559,11 @@ var __plugin = (() => {
       model: provider === "deepl" ? void 0 : storage2.models[provider],
       customEndpoint: storage2.customEndpoint,
       cloudflareAccountId: storage2.cloudflareAccountId,
-      sourceLang: outgoing ? storage2.cloudflareOutgoingSource : storage2.cloudflareIncomingSource,
+      sourceLang: sourceOverride ?? (outgoing ? storage2.cloudflareOutgoingSource : storage2.cloudflareIncomingSource),
       signal,
       onRequest: /* @__PURE__ */ __name(() => {
         sessionStats.apiStatus = "Solicita\xE7\xE3o em andamento";
-        started = true;
+        started++;
         sessionStats.apiCalls++;
         sessionStats.pending++;
         notifyStats();
@@ -1372,7 +1580,7 @@ var __plugin = (() => {
       }
       throw error;
     }).finally(() => {
-      if (started) sessionStats.pending--;
+      if (started) sessionStats.pending = Math.max(0, sessionStats.pending - started);
       if (stats === sessionStats) notifyStats();
     });
   }
@@ -1408,8 +1616,8 @@ var __plugin = (() => {
       return Promise.resolve(dispatched).then(() => {
         if (!verify || !outgoingController) return;
         const observed = visibleMessages.get(verify.id);
-        const current = stores.messages?.getMessage(verify.channelId, verify.id);
-        if (current?.content === verify.expected && observed) {
+        const current2 = stores.messages?.getMessage(verify.channelId, verify.id);
+        if (current2?.content === verify.expected && observed) {
           stats.storeApplied++;
           notifyStats();
         } else {
@@ -1429,11 +1637,11 @@ var __plugin = (() => {
   __name(dispatchMessage, "dispatchMessage");
   function readOriginal(channelId, id, fallback) {
     try {
-      const current = stores.messages?.getMessage(channelId, id) ?? fallback;
-      const applied = appliedLocally.get(id);
-      if (applied && current?.content === applied.translated) return applied.original;
-      if (applied && current && current.content !== applied.original.content) appliedLocally.delete(id);
-      return current;
+      const current2 = stores.messages?.getMessage(channelId, id) ?? fallback;
+      const applied2 = appliedLocally.get(id);
+      if (applied2 && current2?.content === applied2.translated) return applied2.original;
+      if (applied2 && current2 && current2.content !== applied2.original.content) appliedLocally.delete(id);
+      return current2;
     } catch {
       return fallback;
     }
@@ -1442,14 +1650,14 @@ var __plugin = (() => {
   async function restoreLocal() {
     const entries = Array.from(appliedLocally.entries());
     for (const entry of entries) {
-      const id = entry[0], applied = entry[1];
+      const id = entry[0], applied2 = entry[1];
       try {
-        const current = stores.messages?.getMessage(applied.channelId, id);
-        if (current?.content === applied.translated) {
-          await dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+        const current2 = stores.messages?.getMessage(applied2.channelId, id);
+        if (current2?.content === applied2.translated) {
+          await dispatchMessage({ ...current2, content: applied2.original.content, channel_id: applied2.channelId });
         }
-        const after = stores.messages?.getMessage(applied.channelId, id);
-        if (appliedLocally.get(id) === applied && after?.content !== applied.translated) appliedLocally.delete(id);
+        const after = stores.messages?.getMessage(applied2.channelId, id);
+        if (appliedLocally.get(id) === applied2 && after?.content !== applied2.translated) appliedLocally.delete(id);
       } catch {
       }
     }
@@ -1469,13 +1677,13 @@ var __plugin = (() => {
         if (!original) continue;
         const cached = getCached(cacheKey(messageId), observed.source);
         if (cached !== void 0 && cached !== original.content && canTranslateIncoming(observed)) {
-          const current = stores.messages?.getMessage(observed.channelId, messageId);
-          if (current && current.content === original.content) {
+          const current2 = stores.messages?.getMessage(observed.channelId, messageId);
+          if (current2 && current2.content === original.content) {
             if (appliedLocally.size < MAX_CACHED || appliedLocally.has(messageId)) {
               appliedLocally.set(messageId, { original, translated: cached, channelId: observed.channelId });
-              dispatchMessage({ ...current, content: cached, channel_id: observed.channelId }, { id: messageId, channelId: observed.channelId, expected: cached });
+              dispatchMessage({ ...current2, content: cached, channel_id: observed.channelId }, { id: messageId, channelId: observed.channelId, expected: cached });
             }
-          } else if (!current) {
+          } else if (!current2) {
             dispatchMessage(original);
           }
         } else dispatchMessage(original);
@@ -1499,23 +1707,23 @@ var __plugin = (() => {
     return typeof selected === "string" && selected === channelId;
   }
   __name(isSelected, "isSelected");
-  function startTranslation(id, controller, session) {
+  function startTranslation(id, controller2, session) {
     const key = cacheKey(id);
     const observed = visibleMessages.get(id);
     if (!observed || !isSelected(observed.channelId) || !canTranslateIncoming(observed)) return;
     const source = observed.source;
     if (getCached(key, source) !== void 0 || failed.get(key) === source) return;
     inFlight.add(key);
-    void translate(source, storage2.targetLang, controller.signal).then((translated) => {
-      const current = visibleMessages.get(id);
+    void translate(source, storage2.targetLang, controller2.signal).then((translated) => {
+      const current2 = visibleMessages.get(id);
       const currentOriginal = readOriginal(observed.channelId, id);
-      if (controller.signal.aborted || !current || current.source !== source || currentOriginal && currentOriginal.content !== source || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
+      if (controller2.signal.aborted || !current2 || current2.source !== source || currentOriginal && currentOriginal.content !== source || !canTranslateIncoming(current2) || cacheKey(id) !== key) return;
       retries.delete(key);
       stats.lastError = "";
       cacheTranslation(key, source, translated);
-      if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
+      if (translated !== source && isSelected(current2.channelId)) scheduleRender(id);
     }).catch((error) => {
-      if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
+      if (!controller2.signal.aborted && visibleMessages.get(id)?.source === source) {
         const temporary = error instanceof TranslationRequestError && (error.status === 429 || error.status === 503) || !!translationPause(storage2.provider, storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider]);
         const attempt = retries.get(key) ?? 0;
         if (error instanceof TranslationRequestError && [400, 401, 402, 403, 404].includes(error.status)) {
@@ -1543,9 +1751,9 @@ var __plugin = (() => {
   }
   __name(startTranslation, "startTranslation");
   function pumpQueue() {
-    const controller = incomingController;
+    const controller2 = incomingController;
     const session = outgoingController;
-    if (!controller || controller.signal.aborted || !session || !storage2.autoTranslate || !cleanString(storage2.apiKeys?.[storage2.provider])) return;
+    if (!controller2 || controller2.signal.aborted || !session || !storage2.autoTranslate || !cleanString(storage2.apiKeys?.[storage2.provider])) return;
     const model = storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider];
     const pause = translationPause(storage2.provider, model);
     if (pause) return;
@@ -1553,7 +1761,7 @@ var __plugin = (() => {
       if (inFlight.size >= (["gemini", "groq", "openrouter-free", "cloudflare"].includes(storage2.provider) ? 1 : MAX_INFLIGHT)) break;
       if (inFlight.has(cacheKey(id))) continue;
       queue.delete(id);
-      startTranslation(id, controller, session);
+      startTranslation(id, controller2, session);
     }
   }
   __name(pumpQueue, "pumpQueue");
@@ -1677,13 +1885,13 @@ var __plugin = (() => {
   async function refreshIncoming(resetCache = false) {
     if (!incomingController) return;
     incomingController.abort();
-    const controller = new AbortController();
-    incomingController = controller;
+    const controller2 = new AbortController();
+    incomingController = controller2;
     queue.clear();
     failed.clear();
     retries.clear();
     await restoreLocal();
-    if (incomingController !== controller || controller.signal.aborted) return;
+    if (incomingController !== controller2 || controller2.signal.aborted) return;
     if (resetCache) {
       translationCache.clear();
       cacheSources.clear();
@@ -1710,6 +1918,8 @@ var __plugin = (() => {
     if (typeof content !== "string" || !cleanString(content) || cleanString(content).startsWith("/")) {
       return original(...args);
     }
+    const alreadyTranslated = draftBeforeSend(channelId, content);
+    if (alreadyTranslated) return original(...args);
     const prefix = /^\s*!(raw|en|es|pt)(?:[ \t]+|[ \t]*\r?\n)([\s\S]*\S[\s\S]*)$/i.exec(content);
     const shortcut = prefix?.[1].toLowerCase();
     const source = prefix?.[2] ?? content;
@@ -1719,13 +1929,14 @@ var __plugin = (() => {
       notifyUser("Canal bloqueado pelos filtros de envio; texto original mantido.");
       return send(source);
     }
-    if (!shortcut && (!storage2.translateOutgoing || storage2.outgoingOnlyWithPrefix || !shouldTranslateChannel(channelId, true))) return original(...args);
+    const earlyDraft = !shortcut && storage2.translateDraft && storage2.outgoingLang !== "PT-BR" && likelyPortuguese(source) && shouldTranslateChannel(channelId, true);
+    if (!shortcut && !earlyDraft && (!storage2.translateOutgoing || storage2.outgoingOnlyWithPrefix || !shouldTranslateChannel(channelId, true))) return original(...args);
     if (!hasTranslatableText(source)) return send(source);
-    const controller = outgoingController;
-    if (!controller) return send(source);
+    const controller2 = outgoingController;
+    if (!controller2) return send(source);
     const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage2.outgoingLang;
-    return translate(source, target, controller.signal, true).catch(() => {
-      if (!controller.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
+    return translate(source, target, controller2.signal, true, earlyDraft ? "PT-BR" : void 0).catch(() => {
+      if (!controller2.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
       return source;
     }).then(send);
   }
@@ -1738,6 +1949,12 @@ var __plugin = (() => {
     outgoingController = new AbortController();
     findStores();
     installHooks(0);
+    startDraftTranslation((text, target, signal) => translate(text, target, signal, true, "PT-BR"), (status) => {
+      if (stats.draftStatus !== status) {
+        stats.draftStatus = status;
+        notifyStats();
+      }
+    });
     scanTimer = setInterval(scanSelectedChannel, 1200);
     scanSelectedChannel();
   }
@@ -1817,6 +2034,7 @@ var __plugin = (() => {
   }
   __name(installHooks, "installHooks");
   async function onUnload() {
+    stopDraftTranslation();
     if (scanTimer !== void 0) clearInterval(scanTimer);
     scanTimer = void 0;
     if (hookRetry !== void 0) clearTimeout(hookRetry);

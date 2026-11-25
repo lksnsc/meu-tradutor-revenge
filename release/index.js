@@ -146,6 +146,12 @@ var __plugin = (() => {
   ]);
 
   // vendetta-runtime:@vendetta/patcher
+  function before(property, target, callback) {
+    const fn = vendetta.patcher?.before;
+    if (typeof fn !== "function") throw new Error("API patcher.before ausente");
+    return vendetta.patcher.before(property, target, callback);
+  }
+  __name(before, "before");
   function instead(property, target, callback) {
     const fn = vendetta.patcher?.instead;
     if (typeof fn !== "function") throw new Error("API patcher.instead ausente");
@@ -437,8 +443,8 @@ var __plugin = (() => {
       if (provider === "gemini") {
         const modelName = encodeURIComponent(model.replace(/^models\//, ""));
         const response = await postJson("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent", { "x-goog-api-key": apiKey }, {
-          systemInstruction: { parts: [{ text: instructions }] },
-          contents: [{ role: "user", parts: [{ text: protectedText.text }] }],
+          ...!/^gemma-/i.test(model.replace(/^models\//, "")) ? { systemInstruction: { parts: [{ text: instructions }] } } : {},
+          contents: [{ role: "user", parts: [{ text: /^gemma-/i.test(model.replace(/^models\//, "")) ? instructions + "\n\nMensagem para tradu\xE7\xE3o:\n" + protectedText.text : protectedText.text }] }],
           generationConfig: {}
         }, config);
         const candidate = response?.candidates?.[0];
@@ -492,6 +498,12 @@ var __plugin = (() => {
     storage2.customEndpoint ?? (storage2.customEndpoint = "");
     storage2.apiKeys ?? (storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
     storage2.models ?? (storage2.models = { ...DEFAULT_MODELS });
+    if (!(storage2.provider in PROVIDER_NAMES)) storage2.provider = "gemini";
+    if (!(storage2.targetLang in LANG_NAMES)) storage2.targetLang = "PT-BR";
+    if (!(storage2.outgoingLang in LANG_NAMES)) storage2.outgoingLang = "EN";
+    if (!["all", "whitelist", "blacklist"].includes(storage2.filterMode)) storage2.filterMode = "whitelist";
+    if (!Array.isArray(storage2.filterChannels)) storage2.filterChannels = [];
+    if (!Array.isArray(storage2.filterGuilds)) storage2.filterGuilds = [];
   }
   __name(initializeSettings, "initializeSettings");
   function findStore(name, method) {
@@ -526,6 +538,8 @@ var __plugin = (() => {
   function shouldTranslateChannel(channelId, isOutgoing = false) {
     if (isOutgoing && !storage2.applyFilterToOutgoing || storage2.filterMode === "all") return true;
     const guildId = channelId ? stores.channels?.getChannel(channelId)?.guild_id : void 0;
+    if (!channelId) return false;
+    if (storage2.filterMode === "blacklist" && storage2.filterGuilds.length && !stores.channels) return false;
     const listed = channelId !== void 0 && storage2.filterChannels.includes(channelId) || guildId !== void 0 && storage2.filterGuilds.includes(guildId);
     return storage2.filterMode === "whitelist" ? listed : !listed;
   }
@@ -857,7 +871,7 @@ var __plugin = (() => {
           storage2.autoTranslate = true;
           onIncomingChange(true);
         }
-        setTestResult("Resposta da API: " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
+        setTestResult("Resposta da API (" + (model.trim() || provider) + "): " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
       } catch (error) {
         setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
       } finally {
@@ -953,8 +967,12 @@ var __plugin = (() => {
       ["Mensagens aguardando tradu\xE7\xE3o", stats2.queued],
       ["Motor de recebimento", stats2.incomingStatus],
       ["Motor de envio", stats2.outgoingStatus],
-      ["Eventos de exibi\xE7\xE3o capturados", stats2.observed],
-      ["Tradu\xE7\xF5es aplicadas na tela", stats2.rendered],
+      ["Mensagens \xFAnicas capturadas", stats2.observed],
+      ["Chamadas ao renderizador", stats2.rowCalls],
+      ["Tradu\xE7\xF5es entregues ao renderizador", stats2.rendered],
+      ["Atualiza\xE7\xF5es confirmadas no armazenamento local", stats2.storeApplied],
+      ["Diagn\xF3stico de captura", stats2.captureStatus],
+      ["Diagn\xF3stico da API", stats2.apiStatus],
       ["\xDAltimo erro da tradu\xE7\xE3o", stats2.lastError || "Nenhum registrado"],
       ["Chamadas \xE0 API", stats2.apiCalls],
       ["Requisi\xE7\xF5es em andamento", stats2.pending],
@@ -1040,7 +1058,7 @@ var __plugin = (() => {
   var queue = /* @__PURE__ */ new Set();
   var pendingRenders = /* @__PURE__ */ new Set();
   var statsListeners = /* @__PURE__ */ new Set();
-  var emptyStats = { queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+  var emptyStats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "N\xE3o testada nesta sess\xE3o", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
   var stats = { ...emptyStats };
   var statsTimer;
   var renderTimer;
@@ -1092,15 +1110,20 @@ var __plugin = (() => {
       customEndpoint: storage2.customEndpoint,
       signal,
       onRequest: /* @__PURE__ */ __name(() => {
+        sessionStats.apiStatus = "Solicita\xE7\xE3o em andamento";
         started = true;
         sessionStats.apiCalls++;
         sessionStats.pending++;
         notifyStats();
       }, "onRequest")
+    }).then((result) => {
+      if (!signal.aborted) sessionStats.apiStatus = "Resposta v\xE1lida recebida";
+      return result;
     }).catch((error) => {
       if (!signal.aborted) {
         sessionStats.errors++;
         sessionStats.lastError = describeError(error);
+        sessionStats.apiStatus = "Falha: " + describeError(error);
       }
       throw error;
     }).finally(() => {
@@ -1110,7 +1133,7 @@ var __plugin = (() => {
   }
   __name(translate, "translate");
   function cacheKey(id) {
-    return id + ":" + storage2.provider + ":" + storage2.targetLang;
+    return id + ":" + storage2.provider + ":" + storage2.targetLang + ":" + (storage2.provider === "deepl" ? "" : storage2.models[storage2.provider]);
   }
   __name(cacheKey, "cacheKey");
   function removeCached(key) {
@@ -1137,13 +1160,15 @@ var __plugin = (() => {
   function dispatchMessage(original, verify) {
     try {
       const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
-      void Promise.resolve(dispatched).then(() => {
+      return Promise.resolve(dispatched).then(() => {
         if (!verify || !outgoingController) return;
         const observed = visibleMessages.get(verify.id);
         const current = stores.messages?.getMessage(verify.channelId, verify.id);
-        if (current?.content === verify.expected && observed && !observed.translated) {
-          observed.translated = true;
-          stats.rendered++;
+        if (current?.content === verify.expected && observed) {
+          stats.storeApplied++;
+          notifyStats();
+        } else {
+          stats.lastError = "Discord n\xE3o confirmou a atualiza\xE7\xE3o no MessageStore.";
           notifyStats();
         }
       }).catch((error) => {
@@ -1153,6 +1178,7 @@ var __plugin = (() => {
     } catch (error) {
       stats.lastError = "Atualiza\xE7\xE3o local: " + describeError(error);
       notifyStats();
+      return Promise.resolve();
     }
   }
   __name(dispatchMessage, "dispatchMessage");
@@ -1168,15 +1194,20 @@ var __plugin = (() => {
     }
   }
   __name(readOriginal, "readOriginal");
-  function restoreLocal() {
-    for (const [id, applied] of appliedLocally) {
+  async function restoreLocal() {
+    const entries = Array.from(appliedLocally.entries());
+    for (const entry of entries) {
+      const id = entry[0], applied = entry[1];
       try {
         const current = stores.messages?.getMessage(applied.channelId, id);
-        if (current?.content === applied.translated) dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+        if (current?.content === applied.translated) {
+          await dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+        }
+        const after = stores.messages?.getMessage(applied.channelId, id);
+        if (appliedLocally.get(id) === applied && after?.content !== applied.translated) appliedLocally.delete(id);
       } catch {
       }
     }
-    appliedLocally.clear();
   }
   __name(restoreLocal, "restoreLocal");
   function scheduleRender(id) {
@@ -1212,15 +1243,15 @@ var __plugin = (() => {
   }
   __name(scheduleRender, "scheduleRender");
   function canTranslateIncoming(message) {
-    if (!storage2.autoTranslate || !shouldTranslateChannel(message.channelId)) return false;
+    if (!storage2.autoTranslate || !isSelected(message.channelId) || !shouldTranslateChannel(message.channelId)) return false;
     const userId = stores.users?.getCurrentUser()?.id;
-    if (storage2.ignoreOwnMessages && userId && message.message.author?.id === userId) return false;
+    if (storage2.ignoreOwnMessages && (!userId || !message.message.author?.id || message.message.author.id === userId)) return false;
     return hasTranslatableText(message.source);
   }
   __name(canTranslateIncoming, "canTranslateIncoming");
   function isSelected(channelId) {
     const selected = stores.selectedChannel?.getChannelId();
-    return !selected || selected === channelId;
+    return typeof selected === "string" && selected === channelId;
   }
   __name(isSelected, "isSelected");
   function startTranslation(id, controller, session) {
@@ -1242,6 +1273,12 @@ var __plugin = (() => {
       if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
         const temporary = error instanceof TranslationRequestError && (error.status === 429 || error.status === 503) || !!translationPause(storage2.provider, storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider]);
         const attempt = retries.get(key) ?? 0;
+        if (error instanceof TranslationRequestError && [400, 401, 402, 403, 404].includes(error.status)) {
+          stats.apiStatus = "Configura\xE7\xE3o rejeitada; corrija na aba API e reative";
+          incomingController?.abort();
+          queue.clear();
+          return;
+        }
         if (temporary && attempt < 2) {
           retries.set(key, attempt + 1);
           queue.add(id);
@@ -1263,7 +1300,7 @@ var __plugin = (() => {
   function pumpQueue() {
     const controller = incomingController;
     const session = outgoingController;
-    if (!controller || !session || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
+    if (!controller || controller.signal.aborted || !session || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
     const model = storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider];
     const pause = translationPause(storage2.provider, model);
     if (pause) return;
@@ -1303,7 +1340,8 @@ var __plugin = (() => {
     return observed;
   }
   __name(observeMessage, "observeMessage");
-  function interceptRow(args, original) {
+  function interceptRow(args) {
+    stats.rowCalls++;
     try {
       const row = args[0];
       const message = row?.message;
@@ -1326,19 +1364,55 @@ var __plugin = (() => {
       stats.lastError = "Renderiza\xE7\xE3o: " + describeError(error);
       notifyStats();
     }
-    return original(...args);
+    return args;
   }
   __name(interceptRow, "interceptRow");
   function scanSelectedChannel() {
-    if (!outgoingController || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
+    if (!outgoingController) return;
+    if (!storage2.autoTranslate) {
+      stats.captureStatus = "Tradu\xE7\xE3o autom\xE1tica desligada";
+      notifyStats();
+      return;
+    }
+    if (!storage2.apiKeys[storage2.provider]?.trim()) {
+      stats.captureStatus = "Chave de API n\xE3o configurada";
+      notifyStats();
+      return;
+    }
     try {
-      if (!stores.selectedChannel || !stores.messages?.getMessages) findStores();
+      if (!stores.selectedChannel || !stores.messages?.getMessages || !stores.users) findStores();
       const channelId = stores.selectedChannel?.getChannelId();
-      if (!channelId || !shouldTranslateChannel(channelId)) return;
+      if (!channelId) {
+        stats.captureStatus = "Canal selecionado n\xE3o localizado";
+        notifyStats();
+        return;
+      }
+      if (!shouldTranslateChannel(channelId)) {
+        stats.captureStatus = "Canal bloqueado pelo filtro";
+        notifyStats();
+        return;
+      }
+      if (storage2.ignoreOwnMessages && !stores.users?.getCurrentUser()?.id) {
+        findStores();
+        if (!stores.users?.getCurrentUser()?.id) {
+          stats.captureStatus = "UserStore indispon\xEDvel; captura suspensa para respeitar filtro de autoria";
+          notifyStats();
+          return;
+        }
+      }
       const raw = stores.messages?.getMessages?.(channelId);
-      if (!raw) return;
+      if (!raw) {
+        stats.captureStatus = "Hist\xF3rico indispon\xEDvel no MessageStore";
+        notifyStats();
+        return;
+      }
       const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : typeof raw.getMessages === "function" ? raw.getMessages() : raw._array ?? raw.messages;
-      if (!Array.isArray(list)) return;
+      if (!Array.isArray(list)) {
+        stats.captureStatus = "Formato de hist\xF3rico n\xE3o reconhecido";
+        notifyStats();
+        return;
+      }
+      stats.captureStatus = "Hist\xF3rico reconhecido (" + list.length + " registros)";
       const recent = list.slice(-30);
       for (const message of recent) {
         if (message && typeof message.id === "string" && (message.channel_id ?? message.channelId ?? channelId) === channelId)
@@ -1355,14 +1429,16 @@ var __plugin = (() => {
     }
   }
   __name(scanSelectedChannel, "scanSelectedChannel");
-  function refreshIncoming(resetCache = false) {
+  async function refreshIncoming(resetCache = false) {
     if (!incomingController) return;
     incomingController.abort();
-    restoreLocal();
-    incomingController = new AbortController();
+    const controller = new AbortController();
+    incomingController = controller;
     queue.clear();
     failed.clear();
     retries.clear();
+    await restoreLocal();
+    if (incomingController !== controller || controller.signal.aborted) return;
     if (resetCache) {
       translationCache.clear();
       cacheSources.clear();
@@ -1458,9 +1534,8 @@ var __plugin = (() => {
         if (!prototype) prototype = rowPrototype(findByName("RowManager", false));
         if (!prototype) prototype = rowPrototype(find((value) => Boolean(rowPrototype(value))));
         if (!prototype) throw new Error("RowManager.generate n\xE3o localizado");
-        if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch n\xE3o localizado");
-        const undo = instead("generate", prototype, interceptRow);
-        if (typeof undo !== "function") throw new Error("patcher.instead n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
+        const undo = before("generate", prototype, interceptRow);
+        if (typeof undo !== "function") throw new Error("patcher.before n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
         unpatchRowManager = undo;
         stats.incomingStatus = "Intercepta\xE7\xE3o instalada";
       } catch (error) {
@@ -1492,7 +1567,7 @@ var __plugin = (() => {
     if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
   }
   __name(installHooks, "installHooks");
-  function onUnload() {
+  async function onUnload() {
     if (scanTimer !== void 0) clearInterval(scanTimer);
     scanTimer = void 0;
     if (hookRetry !== void 0) clearTimeout(hookRetry);
@@ -1505,11 +1580,11 @@ var __plugin = (() => {
     outgoingController?.abort();
     incomingController = void 0;
     outgoingController = void 0;
-    restoreLocal();
     if (renderTimer !== void 0) clearTimeout(renderTimer);
     if (statsTimer !== void 0) clearTimeout(statsTimer);
     renderTimer = void 0;
     statsTimer = void 0;
+    await restoreLocal();
     visibleMessages.clear();
     translationCache.clear();
     cacheSources.clear();

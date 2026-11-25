@@ -284,7 +284,16 @@ for (const theme of ["neobrutal-light", "kaiju-dark"]) {
 testedPlugin.onUnload();
 await new Promise(resolve => setTimeout(resolve, 20));
 if (currentMessage.content !== "Good morning" || currentSecond.content !== "Good night") throw new Error("Originais não restaurados");
+// Verify a quota rejection stops subsequent history requests, rather than
+// flooding the service with every message in the queue.
+let quotaRequests = 0;
+globalThis.fetch = async () => { quotaRequests++; return { ok: false, status: 429, headers: { get: () => "60" }, json: async () => ({ error: { status: "RESOURCE_EXHAUSTED", details: [{ retryDelay: "60s", violations: [{ quotaId: "RequestsPerMinute", quotaValue: "0" }] }] } }) }; };
+testedPlugin.onLoad();
+await new Promise(resolve => setTimeout(resolve, 100));
+if (quotaRequests !== 1) throw new Error("O controle de cota não interrompeu a fila: " + quotaRequests);
+testedPlugin.onUnload();
 globalThis.fetch = realFetch;
+console.log("POLYZILLA: bloqueio de fila após HTTP 429 aprovado.");
 console.log("POLYZILLA: captura, tradução simulada, aplicação local e restauração aprovadas.");
 console.log("POLYZILLA: renderização recursiva das quatro abas e dois temas com proxies invalidados aprovada.");
 

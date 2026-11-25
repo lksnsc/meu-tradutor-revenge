@@ -4,7 +4,7 @@ import { instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
-import { hasTranslatableText, translateText, type LangCode } from "./translator";
+import { hasTranslatableText, translateText, translationPause, type LangCode } from "./translator";
 
 interface MessageRow {
   rowType?: number;
@@ -57,7 +57,9 @@ function notifyUser(message: string): void {
 }
 
 function readStats(): Stats {
-  return { ...stats, cachedMessages: translationCache.size };
+  const model = storage.provider === "deepl" ? undefined : storage.models?.[storage.provider];
+  const pause = translationPause(storage.provider, model);
+  return { ...stats, cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1000) + " s." : stats.lastError };
 }
 
 function subscribeStats(listener: (value: Stats) => void): () => void {
@@ -229,9 +231,12 @@ function startTranslation(id: string, controller: AbortController, session: Abor
 function pumpQueue(): void {
   const controller = incomingController;
   const session = outgoingController;
-  if (!controller || !session || !storage.autoTranslate) return;
+  if (!controller || !session || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
+  const model = storage.provider === "deepl" ? undefined : storage.models[storage.provider];
+  const pause = translationPause(storage.provider, model);
+  if (pause) return;
   for (const id of Array.from(queue)) {
-    if (inFlight.size >= MAX_INFLIGHT) break;
+    if (inFlight.size >= (storage.provider === "gemini" ? 1 : MAX_INFLIGHT)) break;
     if (inFlight.has(cacheKey(id))) continue;
     queue.delete(id);
     startTranslation(id, controller, session);
@@ -304,6 +309,7 @@ function scanSelectedChannel(): void {
         observeMessage(message as Message, channelId);
     }
     if (!unpatchRowManager) stats.incomingStatus = "Captura por MessageStore";
+    pumpQueue();
     notifyStats();
   } catch (error) { stats.lastError = "Histórico local: " + describeError(error); notifyStats(); }
 }

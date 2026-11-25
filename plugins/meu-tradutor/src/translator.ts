@@ -136,7 +136,63 @@ function systemPrompt(lang: LangCode): string {
   ].join(" ");
 }
 
-class TranslationRequestError extends Error {}
+export class TranslationRequestError extends Error {
+  constructor(message: string, readonly status = 0, readonly retryMs = 0) { super(message); }
+}
+const pauses = new Map<string, { until: number; reason: string }>();
+function pauseKey(provider: ProviderId, model?: string): string {
+  return provider + ":" + (model?.trim().replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+}
+export function translationPause(provider: ProviderId, model?: string) {
+  const key = pauseKey(provider, model);
+  const pause = pauses.get(key);
+  if (pause && pause.until > Date.now()) return pause;
+  pauses.delete(key);
+}
+async function requestFailure(response: Response, config: TranslatorConfig): Promise<TranslationRequestError> {
+  const status = response.status;
+  let retryMs = 0;
+  const parts = [PROVIDER_NAMES[config.provider] + " retornou HTTP " + status + "."];
+  // Only known structured fields are displayed; never log arbitrary response text,
+  // request URLs, credentials, message content or account identifiers.
+  try {
+    const header = response.headers?.get("Retry-After");
+    if (header) {
+      const n = Number(header);
+      retryMs = Number.isFinite(n) ? n * 1000 : Math.max(0, Date.parse(header) - Date.now());
+    }
+    const payload = await response.json() as { error?: { status?: string; message?: string; details?: { retryDelay?: string; violations?: { quotaMetric?: string; quotaId?: string; quotaValue?: string }[] }[] } };
+    const code = payload.error?.status;
+    if (typeof code === "string" && /^[A-Z_]{1,60}$/.test(code)) parts.push(code + ".");
+    const message = payload.error?.message ?? "";
+    const zero = /(?:limit|quota)\s*[:=]\s*0\b/i.test(message);
+    let daily = false;
+    for (const detail of payload.error?.details ?? []) {
+      if (typeof detail.retryDelay === "string" && /^\d+(?:\.\d+)?s$/.test(detail.retryDelay))
+        retryMs = Math.max(retryMs, Number(detail.retryDelay.slice(0, -1)) * 1000);
+      for (const violation of detail.violations ?? []) {
+        const metric = violation.quotaMetric ?? "";
+        const id = violation.quotaId ?? "";
+        const dimension = /per.?day|daily/i.test(metric + id) ? "diária" : /per.?minute|minute/i.test(metric + id) ? "por minuto" : "do projeto/modelo";
+        daily ||= dimension === "diária";
+        const value = String(violation.quotaValue ?? "");
+        const limit = /^\d{1,15}$/.test(value) ? " (limite: " + value + ")" : "";
+        parts.push("Cota " + dimension + limit + ".");
+      }
+    }
+    if (status === 429 && (zero || daily)) parts.push("Confira a cota e o faturamento do projeto no AI Studio.");
+  } catch {}
+  if (status === 429 || status === 503) {
+    retryMs = Math.max(Number.isFinite(retryMs) ? retryMs : 0, status === 429 ? 60000 : 15000);
+    parts.push("Aguarde pelo menos " + Math.ceil(retryMs / 1000) + " s antes de tentar novamente.");
+    const reason = parts.join(" ");
+    const key = pauseKey(config.provider, config.model);
+    const until = Math.max(Date.now() + retryMs, pauses.get(key)?.until ?? 0);
+    pauses.set(key, { until, reason });
+    return new TranslationRequestError(reason, status, retryMs);
+  }
+  return new TranslationRequestError(parts.join(" "), status);
+}
 
 async function postJson<T>(
   url: string,
@@ -167,7 +223,7 @@ async function postJson<T>(
         signal: controller.signal,
       });
       if (!response.ok) {
-        throw new TranslationRequestError(PROVIDER_NAMES[config.provider] + " retornou HTTP " + response.status + ".");
+        throw await requestFailure(response, config);
       }
       try {
         return await response.json() as T;
@@ -195,6 +251,8 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
   const apiKey = config.apiKey.trim();
   if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
   if (!hasTranslatableText(text)) return text;
+  const pause = translationPause(provider, config.model);
+  if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1000) + " s.");
 
   const useXml = provider === "deepl" && Boolean(text.trim().match(discordToken));
   const protectedText = protect(text, useXml);

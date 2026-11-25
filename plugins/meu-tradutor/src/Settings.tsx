@@ -169,7 +169,9 @@ function FilterList({
 
 function Filters({ onIncomingChange }: SettingsProps): JSX.Element {
   const { colors, styles } = getTheme();
-  const [manual, setManual] = React.useState("");
+  const manualState = React.useState("");
+  const manual = manualState[0];
+  const setManual = manualState[1];
   const save = (field: "filterChannels" | "filterGuilds", input?: string | null, manually = false) => {
     const id = input?.trim();
     if (!id || !/^\d{1,20}$/.test(id) || /^0+$/.test(id)) {
@@ -263,10 +265,16 @@ function ProviderFields({
   provider, onIncomingChange,
 }: { provider: ProviderId; onIncomingChange: SettingsProps["onIncomingChange"] }): JSX.Element {
   const { colors, styles } = getTheme();
-  const [apiKey, setApiKey] = React.useState(storage.apiKeys[provider] ?? "");
+  const apiKeyState = React.useState(storage.apiKeys[provider] ?? "");
+  const apiKey = apiKeyState[0];
+  const setApiKey = apiKeyState[1];
   const savedModel = provider === "deepl" ? "" : storage.models[provider] ?? DEFAULT_MODELS[provider];
-  const [model, setModel] = React.useState(savedModel);
-  const [endpoint, setEndpoint] = React.useState(storage.customEndpoint);
+  const modelState = React.useState(savedModel);
+  const model = modelState[0];
+  const setModel = modelState[1];
+  const endpointState = React.useState(storage.customEndpoint);
+  const endpoint = endpointState[0];
+  const setEndpoint = endpointState[1];
 
   const save = () => {
     const nextKey = apiKey.trim();
@@ -319,7 +327,9 @@ function Api({ onIncomingChange }: SettingsProps): JSX.Element {
 
 function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
   const { colors, styles } = getTheme();
-  const [stats, setStats] = React.useState(readStats);
+  const statsState = React.useState(readStats);
+  const stats = statsState[0];
+  const setStats = statsState[1];
   React.useEffect(() => {
     const unsubscribe = subscribeStats(setStats);
     setStats(readStats());
@@ -348,8 +358,10 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
 
 export default function Settings(props: SettingsProps): JSX.Element {
   const { colors, styles } = getTheme();
-  useProxy(storage);
-  const [tab, setTab] = React.useState<keyof typeof tabs>("traducao");
+  try { useProxy(storage); } catch (error) { throw new Error("POLYZILLA Settings.useProxy: " + String(error)); }
+  const tabState = React.useState<keyof typeof tabs>("traducao");
+  const tab = tabState[0];
+  const setTab = tabState[1];
 
   return (
     <View style={styles.screen}>

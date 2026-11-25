@@ -40,7 +40,11 @@ const vendettaRuntime = {
             for (const key of reactKeys) {
               const fn = methods[key];
               result[key] = (...args) => {
-                try { return Reflect.apply(fn, value, args); }
+                try {
+                  const output = Reflect.apply(fn, value, args);
+                  if (key === "useState" && typeof output?.[1] !== "function") throw new Error("retorno sem setter válido");
+                  return output;
+                }
                 catch (error) { throw new Error("POLYZILLA React." + key + ": " + String(error?.message ?? error)); }
               };
             }
@@ -89,14 +93,17 @@ const vendettaRuntime = {
           ]);
           if (!React) throw new Error("POLYZILLA: módulo React incompatível com esta versão do Discord.");
           if (!ReactNative) throw new Error("POLYZILLA: componentes React Native não encontrados.");
-          module.exports = { React, ReactNative, FluxDispatcher: common.FluxDispatcher };
+          const FluxDispatcher = common.FluxDispatcher;
+          export { React, ReactNative, FluxDispatcher };
         ` };
       }
       if (path === "@vendetta/storage") {
         return { loader: "js", contents: `
-          const { React } = require("@vendetta/metro/common");
+          import { React } from "@vendetta/metro/common";
           function useProxy(storage) {
-            const [, redraw] = React.useState(0);
+            const state = React.useState(0);
+            const redraw = state?.[1];
+            if (typeof redraw !== "function") throw new Error("POLYZILLA: useProxy não recebeu um setter válido.");
             React.useEffect(() => {
               const refresh = () => redraw(value => value + 1);
               const emitter = storage?.[Symbol.for("vendetta.storage.emitter")];
@@ -113,7 +120,7 @@ const vendettaRuntime = {
             }, [storage]);
             return storage;
           }
-          module.exports = { useProxy };
+          export { useProxy };
         ` };
       }
       const segments = path.split("/").slice(1);
@@ -130,7 +137,8 @@ await build({
   entryPoints: [join(source, "src", "index.ts")],
   outfile: bundle,
   bundle: true,
-  minify: true,
+  minify: false,
+  keepNames: true,
   format: "iife",
   globalName: "__plugin",
   target: "es2020",
@@ -147,9 +155,10 @@ await build({
 let tab = "traducao";
 const mockReact = {
   createElement: (component, props, ...children) => ({ component, props: { ...props, children } }),
-  useState: initial => [initial === "traducao" ? tab : typeof initial === "function" ? initial() : initial, () => {}],
+  // Deliberately non-iterable hook result: only indexed access is supported.
+  useState: initial => ({ 0: initial === "traducao" ? tab : typeof initial === "function" ? initial() : initial, 1: () => {} }),
   useEffect: () => {},
-  useReducer: () => [0, () => {}],
+  useReducer: () => ({ 0: 0, 1: () => {} }),
   isValidElement: () => true,
   version: "19.0.0",
 };

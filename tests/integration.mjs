@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R31"));
+assert.ok(code.includes("R32"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -63,8 +63,11 @@ const storage = new Proxy({autoTranslate:true,provider:"gemini",apiKeys:{gemini:
   get(target,key){return key===Symbol.for("vendetta.storage.emitter")?emitter:target[key];},
   set(target,key,value){target[key]=value;for(const fn of listeners.SET)fn("SET",{path:[key],value});return true;}
 });
-const stores = {MessageStore:messageStore,UserStore:currentUser,SelectedChannelStore:selectedChannel,ChannelStore:channelStore};
-const candidates=[React,RN,dispatcher,actions,messageStore,selectedChannel,currentUser,channelStore];
+const drafts=new Map();
+const draftStore={getDraft(channel,type){assert.equal(type,0);return drafts.get(channel)??"";}};
+const draftActions={saveDraft(channel,type,text){assert.equal(type,0);drafts.set(channel,text);},clearDraft(channel,type){drafts.delete(channel);}};
+const stores = {DraftStore:draftStore,MessageStore:messageStore,UserStore:currentUser,SelectedChannelStore:selectedChannel,ChannelStore:channelStore};
+const candidates=[React,RN,dispatcher,actions,messageStore,selectedChannel,currentUser,channelStore,draftStore,draftActions];
 const vendetta={
   metro:{common:{React,ReactNative:RN,FluxDispatcher:dispatcher},findByName:name=>name==="RowManager"?RowManager:undefined,findByProps:(...keys)=>candidates.find(m=>keys.every(k=>k in m)),findByPropsAll:(...keys)=>candidates.filter(m=>keys.every(k=>k in m)),find:fn=>[RowManager,...candidates].find(fn),findByStoreName:name=>stores[name]},
   plugin:{id:"https://test.invalid/polyzilla/",storage,manifest},
@@ -74,12 +77,14 @@ const originalFetch=globalThis.fetch;
 let httpError=0;
 let malformedResponse=false;
 const freeCalls=[];
+let draftCalls=0;
 globalThis.fetch=async(url,init)=>{
   if (url === "https://api.cloudflare.com/client/v4/accounts/" + "a".repeat(32) + "/ai/run/@cf/meta/m2m100-1.2b") {
     const body=JSON.parse(init.body);
     assert.equal(init.headers.Authorization,"Bearer synthetic-cloudflare");
     if (body.source_lang==="pt" && body.target_lang==="en") {
-      const translated={"Pronto.":"Ready.","Em tempo real.":"In real time.","Olá":"Hello"}[body.text];
+      const translated={"Pronto.":"Ready.","Em tempo real.":"In real time.","Olá":"Hello","Olá, tudo bem?":"Hello, how are you?","Eu estou bem.":"I am fine."}[body.text];
+      if(body.text==="Olá, tudo bem?"||body.text==="Eu estou bem.") draftCalls++;
       assert.ok(translated,body.text);
       return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:translated},errors:[]})};
     }
@@ -209,6 +214,35 @@ try {
   assert.equal(await actions.sendMessage("1",{content:"Olá"}),"Hello");
   assert.equal(actions.sendMessage("2",{content:"Olá"}),"Olá");
   storage.translateOutgoing=false;
+  storage.translateDraft=true;
+  await pause(300);
+  const sentBefore=sends.length;
+  draftActions.saveDraft("1",0,"Olá, tudo bem?");
+  await pause(2500);
+  assert.equal(draftCalls,0,"Não deve chamar antes de 5 segundos");
+  draftActions.saveDraft("1",0,"Eu estou bem.");
+  await pause(3000);
+  assert.equal(draftCalls,0,"Nova digitação reinicia o prazo");
+  await waitFor(()=>draftStore.getDraft("1",0)==="I am fine.",3500);
+  assert.equal(draftCalls,1);
+  assert.equal(sends.length,sentBefore,"Traduzir rascunho nunca envia");
+  await pause(5500);
+  assert.equal(draftCalls,1,"Rascunho traduzido não pode ser traduzido novamente");
+  storage.translateOutgoing=true;
+  assert.equal(actions.sendMessage("1",{content:"I am fine."}),"I am fine.");
+  assert.equal(draftCalls,1);
+  storage.translateOutgoing=false;
+  draftActions.clearDraft("1",0);
+  await pause(250);
+  draftActions.saveDraft("1",0,"Olá, tudo bem?");
+  await pause(300);
+  selected="2";
+  await pause(5300);
+  assert.equal(draftCalls,1,"Trocar canal cancela");
+  assert.equal(draftStore.getDraft("1",0),"Olá, tudo bem?");
+  selected="1"; storage.translateDraft=false;
+  await pause(250);
+  draftActions.clearDraft("1",0);
   await act(async()=>press("Estatísticas"));
   assert.ok(settings.root.findAllByType("View").some(x=>x.props.style?.flexDirection==="column" && x.props.style?.alignItems==="stretch"));
   assert.ok(hasText("Provedor / modelo salvo")); 

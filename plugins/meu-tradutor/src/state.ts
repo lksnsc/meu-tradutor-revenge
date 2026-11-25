@@ -10,6 +10,7 @@ interface PluginStorage {
   ignoreOwnMessages: boolean;
   targetLang: LangCode;
   translateOutgoing: boolean;
+  translateDraft: boolean;
   outgoingLang: LangCode;
   outgoingOnlyWithPrefix: boolean;
   filterMode: FilterMode;
@@ -51,6 +52,7 @@ export function initializeSettings(): void {
   storage.ignoreOwnMessages ??= true;
   storage.targetLang ??= "PT-BR";
   storage.translateOutgoing ??= false;
+  storage.translateDraft ??= false;
   storage.outgoingLang ??= "EN";
   storage.outgoingOnlyWithPrefix ??= false;
   storage.filterMode ??= "all";
@@ -126,6 +128,7 @@ export interface Stats {
   rendered: number;
   incomingStatus: string;
   outgoingStatus: string;
+  draftStatus: string;
   lastError: string;
   apiCalls: number;
   pending: number;

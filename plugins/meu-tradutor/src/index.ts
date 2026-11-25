@@ -3,6 +3,7 @@ import { FluxDispatcher } from "@vendetta/metro/common";
 import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
+import { startDraftTranslation, stopDraftTranslation, draftBeforeSend, likelyPortuguese } from "./draft";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
 import { cleanString, hasTranslatableText, translateText, translationPause, TranslationRequestError, type LangCode } from "./translator";
 
@@ -36,7 +37,7 @@ const inFlight = new Set<string>();
 const queue = new Set<string>();
 const pendingRenders = new Set<string>();
 const statsListeners = new Set<(stats: Stats) => void>();
-const emptyStats: Stats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "Não testada nesta sessão", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+const emptyStats: Stats = { storeApplied: 0, rowCalls: 0, captureStatus: "Aguardando canal", apiStatus: "Não testada nesta sessão", queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", draftStatus: "Desativada", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
 
 let stats = { ...emptyStats };
 let statsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -77,10 +78,10 @@ function notifyStats(): void {
   }, 0);
 }
 
-function translate(text: string, targetLang: LangCode, signal: AbortSignal, outgoing = false): Promise<string> {
+function translate(text: string, targetLang: LangCode, signal: AbortSignal, outgoing = false, sourceOverride?: LangCode): Promise<string> {
   const provider = storage.provider;
   const sessionStats = stats;
-  let started = false;
+  let started = 0;
 
   return translateText(text, {
     provider,
@@ -89,11 +90,11 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal, outg
     model: provider === "deepl" ? undefined : storage.models[provider],
     customEndpoint: storage.customEndpoint,
     cloudflareAccountId: storage.cloudflareAccountId,
-    sourceLang: outgoing ? storage.cloudflareOutgoingSource : storage.cloudflareIncomingSource,
+    sourceLang: sourceOverride ?? (outgoing ? storage.cloudflareOutgoingSource : storage.cloudflareIncomingSource),
     signal,
     onRequest: () => {
       sessionStats.apiStatus = "Solicitação em andamento";
-      started = true;
+      started++;
       sessionStats.apiCalls++;
       sessionStats.pending++;
       notifyStats();
@@ -102,7 +103,7 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal, outg
     if (!signal.aborted) { sessionStats.errors++; sessionStats.lastError = describeError(error); sessionStats.apiStatus = "Falha: " + describeError(error); }
     throw error;
   }).finally(() => {
-    if (started) sessionStats.pending--;
+    if (started) sessionStats.pending = Math.max(0, sessionStats.pending - started);
     if (stats === sessionStats) notifyStats();
   });
 }
@@ -389,6 +390,8 @@ function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown)
     return original(...args);
   }
 
+  const alreadyTranslated = draftBeforeSend(channelId, content);
+  if (alreadyTranslated) return original(...args);
   const prefix = /^\s*!(raw|en|es|pt)(?:[ \t]+|[ \t]*\r?\n)([\s\S]*\S[\s\S]*)$/i.exec(content);
   const shortcut = prefix?.[1].toLowerCase();
   const source = prefix?.[2] ?? content;
@@ -401,7 +404,8 @@ function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown)
     notifyUser("Canal bloqueado pelos filtros de envio; texto original mantido.");
     return send(source);
   }
-  if (!shortcut && (!storage.translateOutgoing || storage.outgoingOnlyWithPrefix
+  const earlyDraft = !shortcut && storage.translateDraft && storage.outgoingLang !== "PT-BR" && likelyPortuguese(source) && shouldTranslateChannel(channelId, true);
+  if (!shortcut && !earlyDraft && (!storage.translateOutgoing || storage.outgoingOnlyWithPrefix
     || !shouldTranslateChannel(channelId, true))) return original(...args);
   if (!hasTranslatableText(source)) return send(source);
 
@@ -409,7 +413,7 @@ function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown)
   if (!controller) return send(source);
   const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage.outgoingLang;
 
-  return translate(source, target, controller.signal, true).catch(() => {
+  return translate(source, target, controller.signal, true, earlyDraft ? "PT-BR" : undefined).catch(() => {
     if (!controller.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
     return source;
   }).then(send);
@@ -424,6 +428,7 @@ function onLoad(): void {
   findStores();
 
   installHooks(0);
+  startDraftTranslation((text, target, signal) => translate(text, target, signal, true, "PT-BR"), status => { if (stats.draftStatus !== status) { stats.draftStatus = status; notifyStats(); } });
   scanTimer = setInterval(scanSelectedChannel, 1200);
   scanSelectedChannel();
 }
@@ -496,6 +501,7 @@ function installHooks(attempt: number): void {
 }
 
 async function onUnload(): Promise<void> {
+  stopDraftTranslation();
   if (scanTimer !== undefined) clearInterval(scanTimer);
   scanTimer = undefined;
   if (hookRetry !== undefined) clearTimeout(hookRetry);

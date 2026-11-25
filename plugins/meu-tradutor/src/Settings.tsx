@@ -120,6 +120,8 @@ function Translation({ onIncomingChange, onRetranslate }: SettingsProps): JSX.El
       </Section>
 
       <Section title="Minhas mensagens (envio)">
+        <Toggle label="Traduzir na caixa após 5 segundos" value={storage.translateDraft} onChange={value => { storage.translateDraft = value; }} />
+        <Text style={styles.hint}>Ao parar de digitar por 5 segundos, texto identificado localmente como português será enviado ao provedor selecionado e substituído no rascunho. Respeita os filtros de envio. Você revisa e envia manualmente. Se enviar antes do prazo, o motor tenta traduzir no envio.</Text>
         <Toggle label="Traduzir ao enviar" value={storage.translateOutgoing} onChange={value => {
           storage.translateOutgoing = value;
         }} />
@@ -600,6 +602,7 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
     ["Mensagens aguardando tradução", stats.queued],
     ["Motor de recebimento", stats.incomingStatus],
     ["Motor de envio", stats.outgoingStatus],
+    ["Tradução na caixa de texto", stats.draftStatus],
     ["Mensagens únicas capturadas", stats.observed],
     ["Chamadas ao renderizador", stats.rowCalls],
     ["Traduções entregues ao renderizador", stats.rendered],
@@ -637,7 +640,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
-        <Text style={styles.hint}>by NSC · R31</Text>
+        <Text style={styles.hint}>by NSC · R32</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>

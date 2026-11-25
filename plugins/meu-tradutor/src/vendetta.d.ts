@@ -68,7 +68,6 @@ declare module "@vendetta/metro/common" {
     Pressable: (props: PressableProps) => JSX.Element;
     TextInput: (props: TextInputProps) => JSX.Element;
     Switch: (props: SwitchProps) => JSX.Element;
-    StyleSheet: { create<T extends Record<string, object>>(styles: T): T };
   };
 
   export const FluxDispatcher: {

@@ -4,7 +4,7 @@ import { showToast } from "@vendetta/ui/toasts";
 import { storage, stores, type FilterMode, type Stats } from "./state";
 import { DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
 
-const { View, Text, ScrollView, Pressable, TextInput, Switch, StyleSheet } = ReactNative;
+const { View, Text, ScrollView, Pressable, TextInput, Switch } = ReactNative;
 
 const colors = {
   background: "#111214",
@@ -363,7 +363,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = {
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: 14, paddingBottom: 26 },
   tabs: { flexDirection: "row", paddingHorizontal: 9, paddingTop: 9, paddingBottom: 5 },
@@ -387,4 +387,4 @@ const styles = StyleSheet.create({
   listName: { flex: 1, color: colors.text, marginRight: 10 },
   remove: { color: "#ffb4b4", fontWeight: "600" },
   metric: { color: colors.text, fontSize: 18, fontWeight: "700" },
-});
+};

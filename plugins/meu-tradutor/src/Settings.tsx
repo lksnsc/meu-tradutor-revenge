@@ -6,14 +6,15 @@ import { DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type Provide
 
 const { View, Text, ScrollView, Pressable, TextInput, Switch } = ReactNative;
 
-const colors = {
-  background: "#111214",
-  card: "#1e1f22",
-  border: "#35363c",
-  accent: "#5865f2",
-  text: "#f2f3f5",
-  muted: "#c0c2ca",
+const palettes = {
+  "neobrutal-light": { background: "#f5f3e7", header: "#f2efe2", card: "#fffdf2", border: "#101010", outline: "#101010", accent: "#ef233c", text: "#161616", muted: "#565650", option: "#fffdf2", input: "#fffdf2", button: "#00bfc7", buttonText: "#101010", yellow: "#ffe500", danger: "#a3152d", shadow: "#101010", brand: "#ca3620" },
+  "kaiju-dark": { background: "#13171d", header: "#1d2026", card: "#1d2026", border: "#08090a", outline: "#353b43", accent: "#ef233c", text: "#f5f2e9", muted: "#aeb4be", option: "#262b32", input: "#11151a", button: "#ffe500", buttonText: "#0a0c0e", yellow: "#ffe500", danger: "#fb667a", shadow: "#ef233c", brand: "#f5f2e9" },
 };
+const themeNames = { "neobrutal-light": "Neobrutal Light", "kaiju-dark": "Kaiju Dark" };
+function getTheme() {
+  const colors = palettes[storage.theme] ?? palettes["kaiju-dark"];
+  return { colors, styles: makeStyles(colors) };
+}
 
 const tabs = {
   traducao: "Tradução",
@@ -36,6 +37,7 @@ interface SettingsProps {
 }
 
 function Section({ title, children }: { title: string; children: unknown }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <View style={styles.card}>
       <Text style={styles.heading}>{title}</Text>
@@ -47,6 +49,7 @@ function Section({ title, children }: { title: string; children: unknown }): JSX
 function Toggle({
   label, value, onChange, yesNo = false,
 }: { label: string; value: boolean; onChange: (value: boolean) => void; yesNo?: boolean }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <View style={styles.toggle}>
       <Text style={styles.toggleText}>{label + " · " + (yesNo ? (value ? "SIM" : "NÃO") : (value ? "ON" : "OFF"))}</Text>
@@ -61,6 +64,7 @@ function Toggle({
 }
 
 function Button({ label, onPress }: { label: string; onPress: () => void }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <Pressable style={styles.button} onPress={onPress} accessibilityRole="button">
       <Text style={styles.buttonText}>{label}</Text>
@@ -71,6 +75,7 @@ function Button({ label, onPress }: { label: string; onPress: () => void }): JSX
 function Options<T extends string>({
   labels, value, onChange,
 }: { labels: Record<T, string>; value: T; onChange: (value: T) => void }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <View style={styles.options}>
       {(Object.keys(labels) as T[]).map(option => (
@@ -81,7 +86,7 @@ function Options<T extends string>({
           accessibilityState={{ selected: option === value }}
           onPress={() => onChange(option)}
         >
-          <Text style={styles.buttonText}>{labels[option]}</Text>
+          <Text style={[styles.optionText, option === value && styles.selectedText]}>{labels[option]}</Text>
         </Pressable>
       ))}
     </View>
@@ -89,6 +94,7 @@ function Options<T extends string>({
 }
 
 function Translation({ onIncomingChange, onRetranslate }: SettingsProps): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <View>
       <Section title="Mensagens recebidas">
@@ -136,6 +142,7 @@ function Translation({ onIncomingChange, onRetranslate }: SettingsProps): JSX.El
 function FilterList({
   title, ids, resolveName, remove,
 }: { title: string; ids: string[]; resolveName: (id: string) => string | undefined; remove: (id: string) => void }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <Section title={title}>
       {ids.length === 0 ? <Text style={styles.hint}>Lista vazia.</Text> : ids.map(id => {
@@ -161,6 +168,7 @@ function FilterList({
 }
 
 function Filters({ onIncomingChange }: SettingsProps): JSX.Element {
+  const { colors, styles } = getTheme();
   const [manual, setManual] = React.useState("");
   const save = (field: "filterChannels" | "filterGuilds", input?: string | null, manually = false) => {
     const id = input?.trim();
@@ -230,6 +238,7 @@ function Filters({ onIncomingChange }: SettingsProps): JSX.Element {
 function ApiInput({
   label, value, placeholder, secure = false, url = false, onChange,
 }: { label: string; value: string; placeholder: string; secure?: boolean; url?: boolean; onChange: (value: string) => void }): JSX.Element {
+  const { colors, styles } = getTheme();
   return (
     <View style={styles.field}>
       <Text style={styles.label}>{label}</Text>
@@ -253,6 +262,7 @@ function ApiInput({
 function ProviderFields({
   provider, onIncomingChange,
 }: { provider: ProviderId; onIncomingChange: SettingsProps["onIncomingChange"] }): JSX.Element {
+  const { colors, styles } = getTheme();
   const [apiKey, setApiKey] = React.useState(storage.apiKeys[provider] ?? "");
   const savedModel = provider === "deepl" ? "" : storage.models[provider] ?? DEFAULT_MODELS[provider];
   const [model, setModel] = React.useState(savedModel);
@@ -291,6 +301,7 @@ function ProviderFields({
 }
 
 function Api({ onIncomingChange }: SettingsProps): JSX.Element {
+  const { colors, styles } = getTheme();
   const provider = storage.provider;
   return (
     <Section title="Provedor de tradução">
@@ -307,6 +318,7 @@ function Api({ onIncomingChange }: SettingsProps): JSX.Element {
 }
 
 function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
+  const { colors, styles } = getTheme();
   const [stats, setStats] = React.useState(readStats);
   React.useEffect(() => {
     const unsubscribe = subscribeStats(setStats);
@@ -335,11 +347,17 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
 }
 
 export default function Settings(props: SettingsProps): JSX.Element {
+  const { colors, styles } = getTheme();
   useProxy(storage);
   const [tab, setTab] = React.useState<keyof typeof tabs>("traducao");
 
   return (
     <View style={styles.screen}>
+      <View style={styles.header}>
+        <Text style={styles.brand}>POLYZILLA</Text>
+        <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
+        <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
+      </View>
       <View style={styles.tabs}>
         {(Object.keys(tabs) as (keyof typeof tabs)[]).map(key => (
           <Pressable
@@ -349,7 +367,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
             accessibilityState={{ selected: key === tab }}
             onPress={() => setTab(key)}
           >
-            <Text style={styles.tabText}>{tabs[key]}</Text>
+            <Text style={[styles.tabText, key === tab && styles.selectedText]}>{tabs[key]}</Text>
           </Pressable>
         ))}
       </View>
@@ -363,28 +381,37 @@ export default function Settings(props: SettingsProps): JSX.Element {
   );
 }
 
-const styles = {
-  screen: { flex: 1, backgroundColor: colors.background },
-  content: { padding: 14, paddingBottom: 26 },
-  tabs: { flexDirection: "row", paddingHorizontal: 9, paddingTop: 9, paddingBottom: 5 },
-  tab: { flex: 1, borderRadius: 9, paddingVertical: 12, marginHorizontal: 3, justifyContent: "center", backgroundColor: colors.card },
-  tabText: { color: colors.text, textAlign: "center", fontSize: 12, fontWeight: "700" },
-  card: { padding: 14, backgroundColor: colors.card, borderRadius: 12, marginBottom: 12 },
-  heading: { color: colors.text, fontSize: 17, fontWeight: "700", marginBottom: 10 },
-  text: { color: colors.text },
-  label: { color: colors.text, fontWeight: "600", marginTop: 10, marginBottom: 6 },
-  hint: { color: colors.muted, fontSize: 13, lineHeight: 19, marginTop: 4 },
-  toggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44, marginBottom: 5 },
-  toggleText: { flex: 1, marginRight: 10, color: colors.text, fontSize: 14 },
-  options: { flexDirection: "row", flexWrap: "wrap" },
-  option: { backgroundColor: colors.background, minHeight: 44, justifyContent: "center", paddingHorizontal: 11, borderRadius: 8, marginRight: 6, marginBottom: 6 },
-  selected: { backgroundColor: colors.accent },
-  button: { alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: colors.accent, borderRadius: 8, marginRight: 6, marginBottom: 6 },
-  buttonText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  field: { marginBottom: 7 },
-  input: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border, borderRadius: 8, minHeight: 44, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6, color: colors.text },
-  listRow: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
-  listName: { flex: 1, color: colors.text, marginRight: 10 },
-  remove: { color: "#ffb4b4", fontWeight: "600" },
-  metric: { color: colors.text, fontSize: 18, fontWeight: "700" },
-};
+function makeStyles(colors: typeof palettes["kaiju-dark"]) {
+  const edge = { borderWidth: 2, borderColor: colors.border, borderRadius: 0 };
+  const shadow = { shadowColor: colors.shadow, shadowOffset: { width: 3, height: 3 }, shadowOpacity: 1, shadowRadius: 0, elevation: 2 };
+  return {
+    screen: { flex: 1, backgroundColor: colors.background },
+    header: { padding: 14, backgroundColor: colors.header, borderBottomWidth: 3, borderBottomColor: colors.border },
+    brand: { color: colors.brand, fontSize: 30, fontWeight: "900", letterSpacing: 1, textShadowColor: colors.shadow, textShadowOffset: { width: 2, height: 2 }, textShadowRadius: 0 },
+    tagline: { color: colors.muted, fontWeight: "800", fontSize: 10, letterSpacing: 0.5, marginTop: 4, marginBottom: 12 },
+    content: { padding: 14, paddingBottom: 26 },
+    tabs: { flexDirection: "row", paddingHorizontal: 9, paddingVertical: 10, backgroundColor: colors.header },
+    tab: { ...edge, flex: 1, paddingVertical: 12, marginHorizontal: 2, justifyContent: "center", backgroundColor: colors.option },
+    tabText: { color: colors.text, textAlign: "center", fontSize: 11, fontWeight: "900" },
+    card: { ...edge, ...shadow, padding: 14, backgroundColor: colors.card, marginBottom: 16, borderColor: colors.outline },
+    heading: { color: colors.text, fontSize: 17, fontWeight: "900", marginBottom: 10, textTransform: "uppercase" },
+    text: { color: colors.text },
+    label: { color: colors.text, fontWeight: "800", marginTop: 10, marginBottom: 6 },
+    hint: { color: colors.muted, fontSize: 12, lineHeight: 18, marginTop: 4 },
+    toggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 44, marginBottom: 5 },
+    toggleText: { flex: 1, marginRight: 10, color: colors.text, fontSize: 14, fontWeight: "700" },
+    options: { flexDirection: "row", flexWrap: "wrap" },
+    option: { ...edge, backgroundColor: colors.option, minHeight: 44, justifyContent: "center", paddingHorizontal: 10, marginRight: 6, marginBottom: 7 },
+    selected: { backgroundColor: colors.accent, borderColor: colors.border, ...shadow },
+    selectedText: { color: "#ffffff" },
+    optionText: { color: colors.text, fontSize: 12, fontWeight: "800" },
+    button: { ...edge, ...shadow, alignSelf: "flex-start", justifyContent: "center", minHeight: 44, paddingHorizontal: 11, paddingVertical: 8, backgroundColor: colors.button, marginRight: 7, marginBottom: 8 },
+    buttonText: { color: colors.buttonText, fontSize: 13, fontWeight: "900" },
+    field: { marginBottom: 7 },
+    input: { ...edge, backgroundColor: colors.input, minHeight: 44, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 6, color: colors.text },
+    listRow: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.outline },
+    listName: { flex: 1, color: colors.text, marginRight: 10 },
+    remove: { color: colors.danger, fontWeight: "800" },
+    metric: { color: colors.text, fontSize: 18, fontWeight: "900" },
+  };
+}

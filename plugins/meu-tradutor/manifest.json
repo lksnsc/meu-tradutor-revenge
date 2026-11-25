@@ -1,7 +1,14 @@
 {
-  "name": "Meu Tradutor",
-  "description": "Traduz mensagens recebidas e enviadas entre português (BR), inglês e espanhol.",
-  "authors": [{ "name": "Meu Tradutor", "id": "0" }],
+  "name": "POLYZILLA",
+  "description": "Monstro poliglota: tradução de mensagens em tempo real no Discord.",
+  "authors": [
+    {
+      "name": "Meu Tradutor",
+      "id": "0"
+    }
+  ],
   "main": "index.js",
-  "vendetta": { "icon": "GlobeIcon" }
+  "vendetta": {
+    "icon": "GlobeIcon"
+  }
 }

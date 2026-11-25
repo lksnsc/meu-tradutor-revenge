@@ -1,6 +1,6 @@
-# Meu Tradutor para Revenge
+# POLYZILLA para Revenge
 
-Plugin de tradução para Discord mobile com interface em português do Brasil. Traduz mensagens recebidas na tela e pode traduzir as suas antes do envio. Os idiomas disponíveis são português (BR), inglês e espanhol.
+Monstro poliglota com temas Neobrutal Light e Kaiju Dark, inspirados no TORNZILLA. Plugin de tradução para Discord mobile com interface em português do Brasil. Traduz mensagens recebidas na tela e pode traduzir as suas antes do envio. Os idiomas disponíveis são português (BR), inglês e espanhol.
 
 O plugin usa o carregador compatível com Vendetta, que fornece a API global vendetta e instala plugins por URL. A versão nativa do Revenge que usa exclusivamente a API @revenge-mod tem outro formato de plugin. A compatibilidade com Android e iOS depende também dos módulos internos presentes no build do Discord.
 
@@ -19,7 +19,7 @@ O workflow gera e publica a pasta dist. A página também funciona na raiz de um
 ## Instalar e configurar
 
 1. No Discord modificado, abra **Revenge → Plugins → +** e cole a URL do diretório, com a barra final.
-2. Ative **Meu Tradutor**. Abra as configurações do plugin, selecione um provedor em **API**, preencha a chave e toque em **Salvar API**.
+2. Ative **POLYZILLA**. Abra as configurações do plugin, selecione um provedor em **API**, preencha a chave e toque em **Salvar API**.
 3. Em **Tradução**, escolha os idiomas e ative **Tradução automática** para recebimento ou **Traduzir ao enviar** para envio. O modo **Só com prefixo** limita a tradução de envio aos atalhos.
 4. Em **Filtros**, selecione **Todos**, **Só na lista** ou **Ignorar lista**. Uma mensagem corresponde à lista pelo ID do canal ou pelo ID do servidor. Use o canal/servidor atual ou cole o ID manualmente. Toque em **Remover** junto ao item para retirá-lo.
 

@@ -61,8 +61,8 @@ const vendettaRuntime = {
             () => common.ReactNative, () => globalThis.ReactNative,
             () => vendetta.ui?.components?.General
           ]);
-          if (!React) throw new Error("Meu Tradutor: módulo React incompatível com esta versão do Discord.");
-          if (!ReactNative) throw new Error("Meu Tradutor: componentes React Native não encontrados.");
+          if (!React) throw new Error("POLYZILLA: módulo React incompatível com esta versão do Discord.");
+          if (!ReactNative) throw new Error("POLYZILLA: componentes React Native não encontrados.");
           module.exports = { React, ReactNative, FluxDispatcher: common.FluxDispatcher };
         ` };
       }
@@ -160,7 +160,7 @@ function installPage() {
     '<html lang="pt-BR">',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
-    '<title>Meu Tradutor para Revenge</title>',
+    '<title>POLYZILLA para Revenge</title>',
     '<style>',
     '  :root { color-scheme: dark; font: 16px/1.55 system-ui,sans-serif; background: #111214; color: #f2f3f5; }',
     '  * { box-sizing: border-box; }',
@@ -175,7 +175,7 @@ function installPage() {
     '</style>',
     '<body>',
     '<main>',
-    '  <h1>Meu Tradutor para Revenge</h1>',
+    '  <h1>POLYZILLA para Revenge</h1>',
     '  <p>Traduza mensagens em português (BR), inglês e espanhol. Copie a URL e cole em <strong>Revenge → Plugins → +</strong>.</p>',
     '  <label for="plugin">URL do plugin</label>',
     '  <input id="plugin" readonly spellcheck="false">',

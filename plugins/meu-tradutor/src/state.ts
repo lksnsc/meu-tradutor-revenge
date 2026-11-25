@@ -5,6 +5,7 @@ import { DEFAULT_MODELS, type LangCode, type ModelProvider, type ProviderId } fr
 export type FilterMode = "all" | "whitelist" | "blacklist";
 
 interface PluginStorage {
+  theme: "neobrutal-light" | "kaiju-dark";
   autoTranslate: boolean;
   ignoreOwnMessages: boolean;
   targetLang: LangCode;
@@ -41,6 +42,7 @@ export const storage = pluginStorage as PluginStorage;
 export const stores: DiscordStores = {};
 
 export function initializeSettings(): void {
+  storage.theme ??= "kaiju-dark";
   storage.autoTranslate ??= false;
   storage.ignoreOwnMessages ??= true;
   storage.targetLang ??= "PT-BR";

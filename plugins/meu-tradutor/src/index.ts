@@ -325,7 +325,7 @@ function onLoad(): void {
     }
     unpatchRowManager = before("generate", rowManager.prototype, interceptRow);
   } catch {
-    notifyUser("Meu Tradutor: tradução recebida indisponível nesta versão do Discord.");
+    notifyUser("POLYZILLA: tradução recebida indisponível nesta versão do Discord.");
   }
 
   try {
@@ -333,7 +333,7 @@ function onLoad(): void {
     if (typeof actions?.sendMessage !== "function") throw new Error();
     unpatchSendMessage = instead("sendMessage", actions, interceptSend);
   } catch {
-    notifyUser("Meu Tradutor: tradução no envio indisponível nesta versão do Discord.");
+    notifyUser("POLYZILLA: tradução no envio indisponível nesta versão do Discord.");
   }
 }
 

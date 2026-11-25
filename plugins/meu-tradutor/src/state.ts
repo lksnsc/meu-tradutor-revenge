@@ -57,7 +57,6 @@ export function initializeSettings(): void {
   storage.customEndpoint ??= "";
   storage.apiKeys ??= { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
   storage.models ??= { ...DEFAULT_MODELS };
-  if (storage.models.gemini === "gemini-2.5-flash") storage.models.gemini = DEFAULT_MODELS.gemini;
 }
 
 function findStore<T>(name: string, method: string): T | undefined {

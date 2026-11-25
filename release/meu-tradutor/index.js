@@ -193,7 +193,7 @@ var __plugin = (() => {
 
   // plugins/meu-tradutor/src/translator.ts
   function cleanString(value) {
-    return typeof value === "string" ? value.trim() : "";
+    return typeof value === "string" ? value.replace(/^\s+|\s+$/g, "") : "";
   }
   __name(cleanString, "cleanString");
   var DEFAULT_MODELS = {
@@ -231,6 +231,7 @@ var __plugin = (() => {
     textCharacter = /[a-z0-9À-ÖØ-öø-ÿ]/gi;
   }
   function hasTranslatableText(text) {
+    if (typeof text !== "string") return false;
     const remaining = text.replace(keycap, "").replace(discordToken, "");
     return (remaining.match(textCharacter)?.length ?? 0) >= 2;
   }
@@ -252,7 +253,7 @@ var __plugin = (() => {
     const pieces = [];
     const [leading] = text.match(/^\s*/) ?? [""];
     const [trailing] = text.match(/\s*$/) ?? [""];
-    const core = text.trim();
+    const core = cleanString(text);
     const token = /* @__PURE__ */ __name((index) => prefix + index + "QXZ", "token");
     const plainMarker = new RegExp(prefix + "\\d+QXZ", "g");
     let end = 0;
@@ -270,7 +271,7 @@ var __plugin = (() => {
     return {
       text: xml ? "<msg>" + masked + "</msg>" : masked,
       restore(translated) {
-        let result = translated.trim();
+        let result = cleanString(translated);
         if (!result) throw new Error("O provedor retornou uma tradu\xE7\xE3o vazia.");
         if (xml) {
           if (!result.startsWith("<msg>") || !result.endsWith("</msg>")) {
@@ -416,13 +417,14 @@ var __plugin = (() => {
   }
   __name(postJson, "postJson");
   async function translateText(text, config) {
+    if (typeof text !== "string") throw new Error("Texto de tradu\xE7\xE3o inv\xE1lido.");
     const { provider, targetLang } = config;
     const apiKey = cleanString(config.apiKey);
     if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
     if (!hasTranslatableText(text)) return text;
     const pause = translationPause(provider, config.model);
     if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s.");
-    const useXml = provider === "deepl" && Boolean(text.trim().match(discordToken));
+    const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
     const protectedText = protect(text, useXml);
     let translated;
     if (provider === "deepl") {
@@ -455,7 +457,8 @@ var __plugin = (() => {
         if (candidate?.finishReason && candidate.finishReason !== "STOP") {
           throw new Error("O Gemini n\xE3o concluiu a tradu\xE7\xE3o (" + candidate.finishReason + ").");
         }
-        translated = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text ?? "").join("");
+        const parts = candidate?.content?.parts;
+        translated = Array.isArray(parts) ? parts.filter((part) => part && !part.thought && typeof part.text === "string").map((part) => part.text).join("") : void 0;
       } else {
         const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
         if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
@@ -476,10 +479,13 @@ var __plugin = (() => {
         translated = choice?.message?.content;
       }
     }
-    if (typeof translated !== "string" || !translated.trim()) {
+    if (!cleanString(translated)) {
       throw new Error(PROVIDER_NAMES[provider] + " n\xE3o retornou texto traduzido.");
     }
-    return protectedText.restore(translated);
+    if (typeof translated !== "string") throw new Error("Resposta sem texto de tradu\xE7\xE3o.");
+    const restored = protectedText.restore(translated);
+    if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restaura\xE7\xE3o n\xE3o devolveu texto v\xE1lido.");
+    return restored;
   }
   __name(translateText, "translateText");
 
@@ -883,24 +889,32 @@ var __plugin = (() => {
       if (testing) return;
       setTesting(true);
       setTestResult("Consultando o provedor...");
+      let stage = "valida\xE7\xE3o";
       try {
         const nextKey = cleanString(apiKey);
         const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
         const nextEndpoint = provider === "custom" ? cleanString(endpoint) : void 0;
         if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+        stage = "requisi\xE7\xE3o e tradu\xE7\xE3o";
         const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
-        if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo n\xE3o traduziu a frase de teste.");
+        stage = "valida\xE7\xE3o da resposta";
+        const translated = cleanString(result);
+        if (!translated) throw new Error("O motor n\xE3o devolveu texto v\xE1lido.");
+        if (translated.toLowerCase() === "good morning, how are you?") throw new Error("O modelo n\xE3o traduziu a frase de teste.");
+        stage = "salvamento";
         if (activate) {
           storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
           if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
           if (provider === "custom") storage2.customEndpoint = nextEndpoint ?? "";
           storage2.provider = provider;
           storage2.autoTranslate = true;
-          onIncomingChange(true);
+          await onIncomingChange(true);
         }
-        setTestResult("Resposta da API (" + (nextModel || provider) + "): " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
+        stage = "exibi\xE7\xE3o do resultado";
+        setTestResult("Resposta da API (" + (nextModel || provider) + "): " + translated + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
       } catch (error) {
-        setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
+        const detail = error instanceof Error ? error.message : String(error);
+        setTestResult("Falha [" + stage + "]: " + detail);
       } finally {
         setTesting(false);
       }
@@ -946,8 +960,7 @@ var __plugin = (() => {
           setManualModel(false);
         }
       },
-      /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, activeModel === savedModel ? "MODELO SALVO" : "SELE\xC7\xC3O N\xC3O SALVA"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, catalog[activeModel] || activeModel || "Selecionar modelo"), catalog[activeModel] && catalog[activeModel] !== activeModel && /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, activeModel)),
-      /* @__PURE__ */ React.createElement(Text, { style: styles.modelChevron }, catalogOpen ? "\u2303" : "\u2304")
+      /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, activeModel === savedModel ? "MODELO SALVO" : "SELE\xC7\xC3O N\xC3O SALVA"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, catalog[activeModel] || activeModel || "Selecionar modelo"), catalog[activeModel] && catalog[activeModel] !== activeModel && /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, activeModel))
     ), catalogOpen && /* @__PURE__ */ React.createElement(View, { style: styles.modelPanel }, /* @__PURE__ */ React.createElement(View, { style: styles.modelPanelHead }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelCount }, matchingModels.length, " modelos"), /* @__PURE__ */ React.createElement(Pressable, { accessibilityRole: "button", onPress: () => {
       setCatalogOpen(false);
       setQuery("");
@@ -1119,7 +1132,6 @@ var __plugin = (() => {
       modelEyebrow: { color: colors.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1, marginBottom: 4 },
       modelTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
       modelId: { color: colors.muted, fontSize: 10, marginTop: 2 },
-      modelChevron: { color: colors.text, fontSize: 24, marginLeft: 10 },
       modelPanel: { ...edge, borderColor: colors.outline, backgroundColor: colors.card, marginTop: 5, padding: 8 },
       modelPanelHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4, marginBottom: 6 },
       modelCount: { color: colors.muted, fontSize: 11, fontWeight: "800" },
@@ -1396,7 +1408,7 @@ var __plugin = (() => {
   function pumpQueue() {
     const controller = incomingController;
     const session = outgoingController;
-    if (!controller || controller.signal.aborted || !session || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
+    if (!controller || controller.signal.aborted || !session || !storage2.autoTranslate || !cleanString(storage2.apiKeys?.[storage2.provider])) return;
     const model = storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider];
     const pause = translationPause(storage2.provider, model);
     if (pause) return;
@@ -1470,7 +1482,7 @@ var __plugin = (() => {
       notifyStats();
       return;
     }
-    if (!storage2.apiKeys[storage2.provider]?.trim()) {
+    if (!cleanString(storage2.apiKeys?.[storage2.provider])) {
       stats.captureStatus = "Chave de API n\xE3o configurada";
       notifyStats();
       return;
@@ -1558,7 +1570,7 @@ var __plugin = (() => {
   function interceptSend(args, original) {
     const [channelId, message, ...options] = args;
     const content = message?.content;
-    if (typeof content !== "string" || !content.trim() || content.trimStart().startsWith("/")) {
+    if (typeof content !== "string" || !cleanString(content) || cleanString(content).startsWith("/")) {
       return original(...args);
     }
     const prefix = /^!(raw|en|es|pt)[ \t]+([\s\S]*\S[\s\S]*)$/i.exec(content);

@@ -39,6 +39,8 @@ jobs:
           mkdir -p release/meu-tradutor
           cp dist/meu-tradutor/index.js dist/meu-tradutor/manifest.json release/meu-tradutor/
           cp dist/index.js dist/manifest.json release/
+          cp dist/index-*.js release/
+          cp dist/meu-tradutor/index-*.js release/meu-tradutor/
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add release

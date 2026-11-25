@@ -11,6 +11,12 @@ const code = await readFile("dist/index.js", "utf8");
 const manifest = JSON.parse(await readFile("dist/manifest.json", "utf8"));
 assert.equal(manifest.hash, createHash("sha256").update(code).digest("hex"));
 assert.equal(code, await readFile("dist/meu-tradutor/index.js", "utf8"));
+assert.equal(manifest.main, "index-" + manifest.hash + ".js");
+assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
+assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
+assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
+assert.ok(!code.includes("modelChevron"));
+assert.ok(code.includes("R27"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -117,6 +123,10 @@ try {
   await act(async()=>byLabel("Pressable","Selecionar Gemini 4 Hydrogen").props.onPress());
   assert.ok(!byLabel("TextInput","Pesquisar modelo"),"O seletor deve fechar após a escolha");
   assert.ok(!settings.root.findAllByType("Text").some(x=>["⌃","⌄"].includes(x.props.children)),"Seletor não deve exibir seta");
+  const hydrogenRequests = requests.length;
+  await act(async()=>{press("Testar API agora");await pause(30);});
+  assert.equal(requests.length,hydrogenRequests+1,"Teste do modelo Hydrogen selecionado deve chegar à rede simulada");
+  assert.ok(settings.root.findAllByType("Text").some(x=>typeof x.props.children==="string"&&x.props.children.includes("Resposta da API (gemini-4-hydrogen)")));
   await act(async()=>press("Editar ID"));
   await act(async()=>byLabel("TextInput","ID do modelo").props.onChangeText("integration-model"));
   await act(async()=>press("Ocultar ID"));

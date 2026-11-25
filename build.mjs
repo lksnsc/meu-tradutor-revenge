@@ -308,13 +308,16 @@ console.log("POLYZILLA: captura, tradução simulada, aplicação local e restau
 console.log("POLYZILLA: renderização recursiva das quatro abas e dois temas com proxies invalidados aprovada.");
 
 const manifest = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));
-manifest.main = "index.js";
 manifest.hash = createHash("sha256").update(await readFile(bundle)).digest("hex");
+manifest.main = "index-" + manifest.hash + ".js";
+if (/\.trim(?:Start|End)?\s*\(/.test(code) || code.includes("modelChevron")) throw new Error("Regressão: trim ou seta do seletor no bundle.");
 
 await Promise.all([
   writeFile(join(output, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n"),
   writeFile(join(dist, "index.html"), installPage()),
   writeFile(join(dist, "index.js"), code),
+  writeFile(join(dist, manifest.main), code),
+  writeFile(join(output, manifest.main), code),
   writeFile(join(dist, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n"),
 ]);
 

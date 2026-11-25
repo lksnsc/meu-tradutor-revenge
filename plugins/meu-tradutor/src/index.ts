@@ -210,7 +210,7 @@ function pumpQueue(): void {
 function interceptRow(args: [MessageRow?, ...unknown[]]): void {
   const row = args[0];
   const rowMessage = row?.message;
-  if (!rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
+  if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
   const channelId = rowMessage.channel_id ?? row.channelId;
   if (!channelId) return;
   const id = rowMessage.id;

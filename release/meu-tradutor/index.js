@@ -841,6 +841,9 @@ var __plugin = (() => {
     const loadingState = React.useState(false);
     const loading = loadingState[0];
     const setLoading = loadingState[1];
+    const manualModelState = React.useState(false);
+    const manualModel = manualModelState[0];
+    const setManualModel = manualModelState[1];
     const searchState = React.useState("");
     const query = searchState[0];
     const setQuery = searchState[1];
@@ -860,6 +863,22 @@ var __plugin = (() => {
       }
     }, "refreshCatalog");
     const matchingModels = Object.keys(catalog).filter((id) => (id + " " + catalog[id]).toLowerCase().includes(cleanString(query).toLowerCase()));
+    const family = /* @__PURE__ */ __name((id) => {
+      if (/^gemini-4(?:[.-]|$)/i.test(id)) return "Gemini 4";
+      if (/^gemini-3(?:[.-]|$)/i.test(id)) return "Gemini 3";
+      if (/^gemini-2(?:[.-]|$)/i.test(id)) return "Gemini 2";
+      if (/^gemma-/i.test(id)) return "Gemma";
+      return "Outros modelos";
+    }, "family");
+    const groups = ["Gemini 4", "Gemini 3", "Gemini 2", "Gemma", "Outros modelos"];
+    const activeModel = cleanString(model) || savedModel;
+    const pickModel = /* @__PURE__ */ __name((id) => {
+      setModel(id);
+      setCatalogOpen(false);
+      setQuery("");
+      setManualModel(false);
+      setTestResult("");
+    }, "pickModel");
     const testApi = /* @__PURE__ */ __name(async (activate = false) => {
       if (testing) return;
       setTesting(true);
@@ -907,7 +926,7 @@ var __plugin = (() => {
         placeholder: "Cole a sua chave",
         secure: true
       }
-    ), provider !== "deepl" && /* @__PURE__ */ React.createElement(
+    ), provider !== "deepl" && provider !== "gemini" && /* @__PURE__ */ React.createElement(
       ApiInput,
       {
         label: "Modelo",
@@ -915,24 +934,69 @@ var __plugin = (() => {
         onChange: setModel,
         placeholder: DEFAULT_MODELS[provider] || "Nome do modelo"
       }
-    ), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.field }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Cat\xE1logo de modelos Gemini"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, catalogStatus), /* @__PURE__ */ React.createElement(Button, { label: catalogOpen ? "Recolher modelos" : "Escolher modelo", onPress: () => setCatalogOpen(!catalogOpen) }), /* @__PURE__ */ React.createElement(Button, { label: loading ? "Consultando..." : "Atualizar lista pela API", onPress: () => {
-      void refreshCatalog();
-    } }), catalogOpen && /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(ApiInput, { label: "Pesquisar modelo", value: query, onChange: setQuery, placeholder: "Gemini 4, Flash, Gemma..." }), matchingModels.length === 0 && /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Nenhum modelo encontrado."), matchingModels.map((id) => /* @__PURE__ */ React.createElement(
+    ), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo de tradu\xE7\xE3o"), /* @__PURE__ */ React.createElement(
       Pressable,
       {
-        key: id,
-        style: [styles.option, model === id && styles.selected],
+        style: [styles.modelTrigger, catalogOpen && styles.modelTriggerOpen],
+        accessibilityLabel: "Escolher modelo",
         accessibilityRole: "button",
-        accessibilityState: { selected: model === id },
         onPress: () => {
-          setModel(id);
-          setCatalogOpen(false);
-          setTestResult("");
+          setCatalogOpen(!catalogOpen);
+          setQuery("");
+          setManualModel(false);
         }
       },
-      /* @__PURE__ */ React.createElement(Text, { style: [styles.optionText, model === id && styles.selectedText] }, catalog[id]),
-      /* @__PURE__ */ React.createElement(Text, { style: [styles.hint, model === id && styles.selectedText] }, id)
-    ))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Modelos de texto compat\xEDveis com generateContent. O cat\xE1logo n\xE3o garante acesso ou gratuidade; use Testar API agora e depois Salvar API. Voc\xEA tamb\xE9m pode informar o ID manualmente.")), provider === "custom" && /* @__PURE__ */ React.createElement(
+      /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, activeModel === savedModel ? "MODELO SALVO" : "SELE\xC7\xC3O N\xC3O SALVA"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, catalog[activeModel] || activeModel || "Selecionar modelo"), catalog[activeModel] && catalog[activeModel] !== activeModel && /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, activeModel)),
+      /* @__PURE__ */ React.createElement(Text, { style: styles.modelChevron }, catalogOpen ? "\u2303" : "\u2304")
+    ), catalogOpen && /* @__PURE__ */ React.createElement(View, { style: styles.modelPanel }, /* @__PURE__ */ React.createElement(View, { style: styles.modelPanelHead }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelCount }, matchingModels.length, " modelos"), /* @__PURE__ */ React.createElement(Pressable, { accessibilityRole: "button", onPress: () => {
+      setCatalogOpen(false);
+      setQuery("");
+    } }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelLink }, "Fechar \xD7"))), /* @__PURE__ */ React.createElement(
+      TextInput,
+      {
+        accessibilityLabel: "Pesquisar modelo",
+        value: typeof query === "string" ? query : "",
+        onChangeText: (text) => setQuery(typeof text === "string" ? text : ""),
+        autoCorrect: false,
+        autoCapitalize: "none",
+        placeholder: "Buscar modelo...",
+        placeholderTextColor: colors.muted,
+        style: styles.modelSearch
+      }
+    ), /* @__PURE__ */ React.createElement(ScrollView, { style: styles.modelList, nestedScrollEnabled: true, keyboardShouldPersistTaps: "handled", showsVerticalScrollIndicator: true }, matchingModels.length === 0 && /* @__PURE__ */ React.createElement(Text, { style: styles.modelEmpty }, "Nenhum modelo encontrado."), groups.map((group) => {
+      const ids = matchingModels.filter((id) => family(id) === group);
+      if (!ids.length) return null;
+      return /* @__PURE__ */ React.createElement(View, { key: group }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelGroup }, group), ids.map((id) => /* @__PURE__ */ React.createElement(
+        Pressable,
+        {
+          key: id,
+          style: [styles.modelRow, activeModel === id && styles.modelRowActive],
+          accessibilityLabel: "Selecionar " + catalog[id],
+          accessibilityRole: "button",
+          accessibilityState: { selected: activeModel === id },
+          onPress: () => pickModel(id)
+        },
+        /* @__PURE__ */ React.createElement(Text, { style: [styles.modelDot, activeModel === id && styles.modelDotActive] }, activeModel === id ? "\u25CF" : "\u25CB"),
+        /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelRowTitle }, catalog[id]), catalog[id] !== id && /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, id)),
+        activeModel === id && /* @__PURE__ */ React.createElement(Text, { style: styles.modelCheck }, "\u2713")
+      )));
+    }))), /* @__PURE__ */ React.createElement(View, { style: styles.modelTools }, /* @__PURE__ */ React.createElement(Pressable, { style: styles.modelTool, accessibilityRole: "button", onPress: () => {
+      void refreshCatalog();
+    } }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelLink }, loading ? "Consultando..." : "\u21BB Atualizar lista pela API")), /* @__PURE__ */ React.createElement(Pressable, { style: styles.modelTool, accessibilityRole: "button", onPress: () => {
+      setManualModel(!manualModel);
+      setCatalogOpen(false);
+    } }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelLink }, manualModel ? "Ocultar ID" : "Editar ID"))), manualModel && /* @__PURE__ */ React.createElement(
+      ApiInput,
+      {
+        label: "ID do modelo",
+        value: model,
+        onChange: (value) => {
+          setModel(value);
+          setTestResult("");
+        },
+        placeholder: DEFAULT_MODELS.gemini
+      }
+    ), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, catalogStatus)), provider === "custom" && /* @__PURE__ */ React.createElement(
       ApiInput,
       {
         label: "Endpoint compat\xEDvel com OpenAI",
@@ -1047,7 +1111,31 @@ var __plugin = (() => {
       listRow: { flexDirection: "row", alignItems: "center", minHeight: 44, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.outline },
       listName: { flex: 1, color: colors.text, marginRight: 10 },
       remove: { color: colors.danger, fontWeight: "800" },
-      metric: { color: colors.text, fontSize: 18, fontWeight: "900" }
+      metric: { color: colors.text, fontSize: 18, fontWeight: "900" },
+      modelSection: { marginBottom: 14 },
+      modelTrigger: { ...edge, borderColor: colors.outline, backgroundColor: colors.input, flexDirection: "row", alignItems: "center", padding: 12, minHeight: 70 },
+      modelTriggerOpen: { borderColor: colors.accent },
+      modelMain: { flex: 1 },
+      modelEyebrow: { color: colors.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1, marginBottom: 4 },
+      modelTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+      modelId: { color: colors.muted, fontSize: 10, marginTop: 2 },
+      modelChevron: { color: colors.text, fontSize: 24, marginLeft: 10 },
+      modelPanel: { ...edge, borderColor: colors.outline, backgroundColor: colors.card, marginTop: 5, padding: 8 },
+      modelPanelHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4, marginBottom: 6 },
+      modelCount: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+      modelSearch: { ...edge, borderWidth: 1, borderColor: colors.outline, backgroundColor: colors.input, color: colors.text, minHeight: 42, paddingHorizontal: 10, marginBottom: 5 },
+      modelList: { maxHeight: 248 },
+      modelGroup: { color: colors.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase", paddingHorizontal: 8, paddingTop: 12, paddingBottom: 5 },
+      modelRow: { flexDirection: "row", alignItems: "center", minHeight: 48, paddingVertical: 6, paddingHorizontal: 8, borderLeftWidth: 3, borderLeftColor: "transparent", borderBottomWidth: 1, borderBottomColor: colors.outline },
+      modelRowActive: { borderLeftColor: colors.accent, backgroundColor: colors.option },
+      modelDot: { color: colors.muted, fontSize: 15, marginRight: 9 },
+      modelDotActive: { color: colors.accent },
+      modelRowTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
+      modelCheck: { color: colors.accent, fontSize: 16, fontWeight: "900", marginLeft: 6 },
+      modelEmpty: { color: colors.muted, padding: 14, fontSize: 12 },
+      modelTools: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, flexWrap: "wrap" },
+      modelTool: { minHeight: 44, justifyContent: "center", paddingHorizontal: 3 },
+      modelLink: { color: colors.text, fontSize: 12, fontWeight: "800" }
     };
   }
   __name(makeStyles, "makeStyles");

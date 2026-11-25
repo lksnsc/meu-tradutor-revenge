@@ -1078,7 +1078,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R27"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,

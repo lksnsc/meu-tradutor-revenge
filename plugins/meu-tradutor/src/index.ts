@@ -1,5 +1,5 @@
 import { findByName, findByProps } from "@vendetta/metro";
-import { FluxDispatcher, React } from "@vendetta/metro/common";
+import { FluxDispatcher } from "@vendetta/metro/common";
 import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
@@ -373,7 +373,7 @@ function onUnload(): void {
 }
 
 function PluginSettings(): JSX.Element {
-  return React.createElement(Settings, {
+  return Settings({
     onIncomingChange: refreshIncoming,
     onRetranslate: clearCacheAndRetranslate,
     readStats,

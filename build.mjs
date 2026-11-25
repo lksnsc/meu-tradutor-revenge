@@ -28,37 +28,63 @@ const vendettaRuntime = {
           const common = metro.common;
           const reactKeys = ["createElement", "useState", "useEffect", "useReducer"];
           const nativeKeys = ["View", "Text", "ScrollView", "TextInput", "Pressable", "Switch"];
-          const isReact = value => reactKeys.every(key => typeof value?.[key] === "function");
-          const isNative = value => nativeKeys.every(key => {
-            const component = value?.[key];
-            return typeof component === "function" || (component !== null && typeof component === "object");
-          });
-          function select(check, candidates) {
+          // Never retain the loader's lazy module proxies. Capture actual exports.
+          function captureReact(value) {
+            if (!value) return;
+            const methods = Object.fromEntries(reactKeys.map(key => [key, value[key]]));
+            if (!reactKeys.every(key => typeof methods[key] === "function")) return;
+            const Probe = () => null;
+            const probe = Reflect.apply(methods.createElement, value, [Probe, { test: 1 }]);
+            if (!probe || probe.type !== Probe && probe.component !== Probe || probe.props?.test !== 1) return;
+            const result = {};
+            for (const key of reactKeys) {
+              const fn = methods[key];
+              result[key] = (...args) => {
+                try { return Reflect.apply(fn, value, args); }
+                catch (error) { throw new Error("POLYZILLA React." + key + ": " + String(error?.message ?? error)); }
+              };
+            }
+            return result;
+          }
+          function captureNative(value) {
+            if (!value) return;
+            const result = Object.fromEntries(nativeKeys.map(key => [key, value[key]]));
+            if (!nativeKeys.every(key => {
+              const component = result[key];
+              return typeof component === "function" || (component !== null && typeof component === "object");
+            })) return;
+            return result;
+          }
+          function select(capture, candidates) {
             for (const candidate of candidates) {
               try {
                 const value = candidate();
-                if (check(value)) return value;
-                if (check(value?.default)) return value.default;
+                const direct = capture(value);
+                if (direct) return direct;
+                const nested = capture(value?.default);
+                if (nested) return nested;
               } catch {}
             }
           }
-          function search(check, keys, candidates) {
-            const direct = select(check, [
-              () => metro.findByProps(...keys),
-              ...candidates
-            ]);
+          function search(capture, keys, candidates) {
+            const direct = select(capture, candidates);
             if (direct) return direct;
             try {
               const matches = metro.findByPropsAll?.(...keys) || [];
-              return select(check, Array.from(matches, value => () => value));
+              return select(capture, Array.from(matches, value => () => value));
             } catch {}
           }
-          const React = search(isReact, reactKeys, [
-            () => common.React, () => globalThis.React
+          const React = search(captureReact, reactKeys, [
+            () => metro.findByProps(...reactKeys, "isValidElement", "version"),
+            () => globalThis.React,
+            () => common.React,
+            () => metro.findByProps(...reactKeys)
           ]);
-          const ReactNative = search(isNative, ["AppRegistry", ...nativeKeys], [
+          const ReactNative = search(captureNative, ["AppRegistry", ...nativeKeys], [
+            () => metro.findByProps("AppRegistry", ...nativeKeys),
+            () => globalThis.ReactNative,
+            () => common.ReactNative,
             () => metro.findByProps(...nativeKeys),
-            () => common.ReactNative, () => globalThis.ReactNative,
             () => vendetta.ui?.components?.General
           ]);
           if (!React) throw new Error("POLYZILLA: módulo React incompatível com esta versão do Discord.");
@@ -116,18 +142,28 @@ await build({
   plugins: [vendettaRuntime],
 });
 
-// Exercise the compiled settings against a broken legacy proxy and a valid Metro fallback.
+// Regression: the actual Revenge loader may return lazy proxies whose exports
+// disappear after initialization. Render recursively after invalidating those proxies.
+let tab = "traducao";
 const mockReact = {
   createElement: (component, props, ...children) => ({ component, props: { ...props, children } }),
-  useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+  useState: initial => [initial === "traducao" ? tab : typeof initial === "function" ? initial() : initial, () => {}],
   useEffect: () => {},
   useReducer: () => [0, () => {}],
+  isValidElement: () => true,
+  version: "19.0.0",
 };
 const mockNative = Object.fromEntries(["AppRegistry", "View", "Text", "ScrollView", "TextInput", "Pressable", "Switch"].map(key => [key, () => null]));
+let expired = false;
+const transient = target => new Proxy(target, {
+  get(obj, key) { return expired ? undefined : obj[key]; },
+});
+const reactProxy = transient(mockReact);
+const nativeProxy = transient(mockNative);
 const mockVendetta = {
   metro: {
     common: { React: { useState: mockReact.useState }, ReactNative: { AppRegistry: {} } },
-    findByProps: (...keys) => [mockReact, mockNative].find(module => keys.every(key => key in module)),
+    findByProps: (...keys) => [reactProxy, nativeProxy].find(module => keys.every(key => key in module)),
     findByName: () => undefined,
     findByStoreName: () => undefined,
   },
@@ -139,11 +175,24 @@ const mockVendetta = {
 const code = await readFile(bundle, "utf8");
 const testedPlugin = new Function("vendetta", "return " + code)(mockVendetta).default;
 testedPlugin.onLoad();
-const settingsRoot = testedPlugin.settings();
-const renderedSettings = settingsRoot.component(settingsRoot.props);
-if (renderedSettings.component !== mockNative.View) throw new Error("Falha no teste da interface de configuração.");
+expired = true;
+function renderTree(node) {
+  if (node == null || typeof node !== "object") return;
+  if (Array.isArray(node)) { node.forEach(renderTree); return; }
+  if (typeof node.component !== "function" && typeof node.component !== "object") throw new Error("Componente sem implementação");
+  if (!Object.values(mockNative).includes(node.component)) renderTree(node.component(node.props));
+  else renderTree(node.props?.children);
+}
+for (const theme of ["neobrutal-light", "kaiju-dark"]) {
+  mockVendetta.plugin.storage.theme = theme;
+  for (tab of ["traducao", "filtros", "api", "stats"]) {
+    const settingsRoot = testedPlugin.settings();
+    if (settingsRoot.component !== mockNative.View) throw new Error("Falha no teste da interface de configuração.");
+    renderTree(settingsRoot);
+  }
+}
 testedPlugin.onUnload();
-console.log("Teste de renderização com API legada incompatível: aprovado.");
+console.log("POLYZILLA: renderização recursiva das quatro abas e dois temas com proxies invalidados aprovada.");
 
 const manifest = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));
 manifest.main = "index.js";

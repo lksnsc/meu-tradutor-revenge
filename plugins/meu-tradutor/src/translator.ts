@@ -10,6 +10,7 @@ export interface TranslatorConfig {
   customEndpoint?: string;
   signal?: AbortSignal;
   onRequest?: () => void;
+  onResponse?: (status: number) => void;
 }
 
 export function cleanString(value: unknown): string {
@@ -199,74 +200,97 @@ async function requestFailure(response: Response, config: TranslatorConfig): Pro
   return new TranslationRequestError(parts.join(" "), status);
 }
 
-async function postJson<T>(
+// Explicit settlement, independent of native async/await return propagation.
+function postJson<T>(
   url: string,
   headers: Record<string, string>,
   body: object,
   config: TranslatorConfig,
 ): Promise<T> {
-  const controller = new AbortController();
-  let rejectInterrupted!: (error: TranslationRequestError) => void;
-  const interrupted = new Promise<never>((_, reject) => {
-    rejectInterrupted = reject;
-  });
-  const cancel = () => {
-    rejectInterrupted(new TranslationRequestError("Tradução cancelada."));
-    controller.abort();
-  };
-  config.signal?.addEventListener("abort", cancel);
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    if (config.signal?.aborted) throw new Error("Tradução cancelada.");
-    config.onRequest?.();
-    const request = async () => {
-      const response = await fetch(url, {
+  return new Promise<T>(function requestExecutor(resolve, reject) {
+    const controller = new AbortController();
+    let finished = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    function cleanup() {
+      if (timer !== undefined) clearTimeout(timer);
+      config.signal?.removeEventListener("abort", cancel);
+    }
+    function fail(error: unknown) {
+      if (finished) return;
+      finished = true;
+      cleanup();
+      reject(error instanceof TranslationRequestError ? error : new TranslationRequestError("Falha de rede ao acessar " + PROVIDER_NAMES[config.provider] + "."));
+    }
+    function succeed(value: unknown) {
+      if (finished) return;
+      if (!value || typeof value !== "object") {
+        fail(new TranslationRequestError("O provedor retornou uma resposta JSON inválida."));
+        return;
+      }
+      finished = true;
+      cleanup();
+      resolve(value as T);
+    }
+    function cancel() {
+      fail(new TranslationRequestError("Tradução cancelada."));
+      controller.abort();
+    }
+    if (config.signal?.aborted) { cancel(); return; }
+    config.signal?.addEventListener("abort", cancel);
+    timer = setTimeout(function requestTimeout() {
+      fail(new TranslationRequestError("Tempo limite de tradução excedido."));
+      controller.abort();
+    }, REQUEST_TIMEOUT);
+    try {
+      config.onRequest?.();
+      fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(body),
         signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw await requestFailure(response, config);
-      }
-      try {
-        return await response.json() as T;
-      } catch {
-        throw new TranslationRequestError("O provedor retornou uma resposta inválida.");
-      }
-    };
-    timer = setTimeout(() => {
-      rejectInterrupted(new TranslationRequestError("Tempo limite de tradução excedido."));
-      controller.abort();
-    }, REQUEST_TIMEOUT);
-    return await Promise.race([request(), interrupted]);
-  } catch (error) {
-    if (error instanceof TranslationRequestError) throw error;
-    if (config.signal?.aborted) throw new Error("Tradução cancelada.");
-    throw new Error("Falha de rede ao acessar " + PROVIDER_NAMES[config.provider] + ".");
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    config.signal?.removeEventListener("abort", cancel);
-  }
+      }).then(function receiveResponse(response) {
+        if (finished) return;
+        if (!response || typeof response.ok !== "boolean") {
+          fail(new TranslationRequestError("Resposta HTTP indisponível."));
+          return;
+        }
+        config.onResponse?.(response.status);
+        if (!response.ok) {
+          requestFailure(response, config).then(function rejectHttp(error) {
+            fail(error instanceof TranslationRequestError ? error : new TranslationRequestError(PROVIDER_NAMES[config.provider] + " retornou HTTP " + response.status + ".", response.status));
+          }, fail);
+          return;
+        }
+        response.json().then(succeed, function invalidJson() {
+          fail(new TranslationRequestError("O provedor retornou uma resposta inválida."));
+        });
+      }, fail).catch(fail);
+    } catch (error) { fail(error); }
+  });
 }
 
-export async function translateText(text: string, config: TranslatorConfig): Promise<string> {
+export function translateText(text: string, config: TranslatorConfig): Promise<string> {
+  try {
   if (typeof text !== "string") throw new Error("Texto de tradução inválido.");
   const { provider, targetLang } = config;
   const apiKey = cleanString(config.apiKey);
   if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
-  if (!hasTranslatableText(text)) return text;
+  if (!hasTranslatableText(text)) return Promise.resolve(text);
   const pause = translationPause(provider, config.model);
   if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1000) + " s.");
 
   const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
   const protectedText = protect(text, useXml);
-  let translated: string | undefined;
+  function complete(translated: unknown): string {
+    if (typeof translated !== "string" || !cleanString(translated)) throw new Error(PROVIDER_NAMES[provider] + " não retornou texto traduzido.");
+    const restored = protectedText.restore(translated);
+    if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restauração não devolveu texto válido.");
+    return restored;
+  }
 
   if (provider === "deepl") {
     const endpoint = apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-    const response = await postJson<{
+    return postJson<{
       translations?: { text: string; detected_source_language?: string }[];
     }>(endpoint + "/v2/translate", { Authorization: "DeepL-Auth-Key " + apiKey }, {
       text: [protectedText.text],
@@ -277,10 +301,11 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
         non_splitting_tags: ["keep"],
         split_sentences: "nonewlines",
       }),
-    }, config);
-    const entry = response?.translations?.[0];
-    if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
-    translated = entry?.text;
+    }, config).then(function parseDeepL(response) {
+      const entry = response?.translations?.[0];
+      if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
+      return complete(entry?.text);
+    });
   } else {
     const model = cleanString(config.model) || DEFAULT_MODELS[provider];
     if (!model) throw new Error("Informe o modelo do provedor personalizado.");
@@ -288,26 +313,34 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
 
     if (provider === "gemini") {
       const modelName = encodeURIComponent(model.replace(/^models\//, ""));
-      const response = await postJson<{
+      return postJson<{
         candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
       }>("https://generativelanguage.googleapis.com/v1beta/models/" + modelName
         + ":generateContent", { "x-goog-api-key": apiKey }, {
         ...(!/^gemma-/i.test(model.replace(/^models\//, "")) ? { systemInstruction: { parts: [{ text: instructions }] } } : {}),
         contents: [{ role: "user", parts: [{ text: /^gemma-/i.test(model.replace(/^models\//, "")) ? instructions + "\n\nMensagem para tradução:\n" + protectedText.text : protectedText.text }] }],
         generationConfig: {},
-      }, config);
+      }, config).then(function parseGemini(response) {
       const candidate = response?.candidates?.[0];
       if (candidate?.finishReason && candidate.finishReason !== "STOP") {
         throw new Error("O Gemini não concluiu a tradução (" + candidate.finishReason + ").");
       }
       const parts = candidate?.content?.parts;
-      translated = Array.isArray(parts) ? parts.filter(part => part && !part.thought && typeof part.text === "string").map(part => part.text).join("") : undefined;
+      let translated = "";
+      if (Array.isArray(parts)) {
+        for (let index = 0; index < parts.length; index++) {
+          const part = parts[index];
+          if (part && part.thought !== true && typeof part.text === "string") translated += part.text;
+        }
+      }
+      return complete(translated);
+      });
     } else {
       const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
       if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
         throw new Error("Informe a URL HTTPS completa do endpoint compatível com OpenAI.");
       }
-      const response = await postJson<{
+      return postJson<{
         choices?: { finish_reason?: string; message?: { content?: string } }[];
       }>(endpoint, { Authorization: "Bearer " + apiKey }, {
         model,
@@ -316,21 +349,15 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
           { role: "system", content: instructions },
           { role: "user", content: protectedText.text },
         ],
-      }, config);
+      }, config).then(function parseChat(response) {
       const choice = response?.choices?.[0];
       if (choice?.finish_reason && choice.finish_reason !== "stop") {
         throw new Error(PROVIDER_NAMES[provider] + " não concluiu a tradução.");
       }
-      translated = choice?.message?.content;
+      return complete(choice?.message?.content);
+      });
     }
   }
 
-  if (!cleanString(translated)) {
-    throw new Error(PROVIDER_NAMES[provider] + " não retornou texto traduzido.");
-  }
-
-  if (typeof translated !== "string") throw new Error("Resposta sem texto de tradução.");
-  const restored = protectedText.restore(translated);
-  if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restauração não devolveu texto válido.");
-  return restored;
+  } catch (error) { return Promise.reject(error); }
 }

@@ -96,7 +96,7 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
       sessionStats.pending++;
       notifyStats();
     },
-  }).then(result => { if (!signal.aborted) sessionStats.apiStatus = "Resposta válida recebida"; return result; }).catch((error: unknown) => {
+  }).then(result => { if (typeof result !== "string" || !cleanString(result)) throw new Error("O motor não devolveu texto válido."); if (!signal.aborted) sessionStats.apiStatus = "Resposta válida recebida"; return result; }).catch((error: unknown) => {
     if (!signal.aborted) { sessionStats.errors++; sessionStats.lastError = describeError(error); sessionStats.apiStatus = "Falha: " + describeError(error); }
     throw error;
   }).finally(() => {

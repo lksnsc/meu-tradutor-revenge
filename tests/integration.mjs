@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R27"));
+assert.ok(code.includes("R28"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -81,10 +81,10 @@ globalThis.fetch=async(url,init)=>{
   const input=body.contents[0].parts[0].text;
   requests.push(input);
   assert.ok(!input.includes("Private other channel")&&!input.includes("My own message"));
-  if(malformedResponse) return {ok:true,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{}, {thought:true,text:"internal"}]}}]})};
+  if(malformedResponse) return {ok:true,status:200,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{}, {thought:true,text:"internal"}]}}]})};
   if(httpError) return {ok:false,status:httpError,headers:{get:()=>null},json:async()=>({error:{status:httpError===429?"RESOURCE_EXHAUSTED":"PERMISSION_DENIED"}})};
   const translated=input.replace("Good morning","Bom dia").replace("Good night","Boa noite").replace("Good evening","Boa tarde").replace("Good morning, how are you?","Bom dia, como vai?").replace("Hello","Olá");
-  return {ok:true,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{text:translated}]}}]})};
+  return {ok:true,status:200,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{text:translated}]}}]})};
 };
 // Follow the actual Revenge loader's eval and default-export convention.
 const raw=(0,eval)("vendetta=>{return "+code+"}")(vendetta);
@@ -136,6 +136,9 @@ try {
   assert.equal(requests.length,prior+1,"Teste API deve chegar à rede mesmo sem endpoint customizado");
   const hasText=phrase=>settings.root.findAllByType("Text").some(x=>typeof x.props.children==="string"&&x.props.children.includes(phrase));
   assert.ok(hasText("Resposta da API"),"Teste não exibiu sucesso");
+  assert.ok(hasText("Original (EN): Good morning, how are you?"));
+  assert.ok(hasText("Tradução (PT-BR): Bom dia, how are you?"));
+  assert.ok(hasText("HTTP 200"));
   malformedResponse=true;
   await act(async()=>{press("Testar API agora");await pause(30);});
   assert.ok(hasText("não retornou texto traduzido"),"Resposta sem texto deve gerar mensagem específica");

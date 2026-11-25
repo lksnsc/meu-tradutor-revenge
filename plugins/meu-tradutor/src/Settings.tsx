@@ -375,37 +375,56 @@ function ProviderFields({
   const activeModel = cleanString(model) || savedModel;
   const pickModel = (id: string) => { setModel(id); setCatalogOpen(false); setQuery(""); setManualModel(false); setTestResult(""); };
 
-  const testApi = async (activate = false) => {
+  const testApi = (activate = false) => {
     if (testing) return;
     setTesting(true);
-    setTestResult("Consultando o provedor...");
+    const sample = "Good morning, how are you?";
+    const started = Date.now();
+    let httpStatus = 0;
     let stage = "validação";
+    let actualTranslation = "";
+    setTestResult("Original (EN): " + sample + "\nConsultando o provedor...");
+    function reportFailure(error: unknown) {
+      const detail = error instanceof Error ? error.message : String(error);
+      setTestResult("Original (EN): " + sample + "\n" +
+        (actualTranslation ? "Tradução (PT-BR): " + actualTranslation + "\n" : "") +
+        (httpStatus ? "HTTP " + httpStatus + "\n" : "Sem resposta HTTP confirmada.\n") +
+        "Falha [" + stage + "]: " + detail);
+      setTesting(false);
+    }
     try {
       const nextKey = cleanString(apiKey);
       const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : undefined;
       if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
       stage = "requisição e tradução";
-      const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
-      stage = "validação da resposta";
-      const translated = cleanString(result);
-      if (!translated) throw new Error("O motor não devolveu texto válido.");
-      if (translated.toLowerCase() === "good morning, how are you?") throw new Error("O modelo não traduziu a frase de teste.");
-      stage = "salvamento";
-      if (activate) {
+      const request = translateText(sample, {
+        provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint,
+        onResponse: function recordStatus(status) { if (typeof status === "number") httpStatus = status; },
+      });
+      request.then(function receiveTranslation(result) {
+        stage = "validação da resposta";
+        actualTranslation = cleanString(result);
+        if (!actualTranslation) throw new Error("O motor não devolveu texto válido (tipo: " + typeof result + ").");
+        if (actualTranslation.toLowerCase() === sample.toLowerCase()) throw new Error("O modelo não traduziu a frase de teste.");
+        const summary = "Resposta da API (" + (nextModel || provider) + ")\nOriginal (EN): " + sample +
+          "\nTradução (PT-BR): " + actualTranslation +
+          "\n" + (httpStatus ? "HTTP " + httpStatus + " · " : "") + (Date.now() - started) + " ms";
+        // Display the actual answer before saving or restarting the chat engine.
+        setTestResult(summary);
+        if (!activate) { setTesting(false); return; }
+        stage = "salvamento";
         storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
         if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
         if (provider === "custom") storage.customEndpoint = nextEndpoint ?? "";
         storage.provider = provider;
         storage.autoTranslate = true;
-        await onIncomingChange(true);
-      }
-      stage = "exibição do resultado";
-      setTestResult("Resposta da API (" + (nextModel || provider) + "): " + translated + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      setTestResult("Falha [" + stage + "]: " + detail);
-    } finally { setTesting(false); }
+        Promise.resolve(onIncomingChange(true)).then(function activated() {
+          setTestResult(summary + "\nConfiguração salva e tradução automática ativada. Os filtros atuais foram mantidos.");
+          setTesting(false);
+        }, reportFailure);
+      }).catch(reportFailure);
+    } catch (error) { reportFailure(error); }
   };
 
   const save = () => {
@@ -576,7 +595,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
-        <Text style={styles.hint}>by NSC · R27</Text>
+        <Text style={styles.hint}>by NSC · R28</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>

@@ -201,6 +201,8 @@ var __plugin = (() => {
     openai: "gpt-4o-mini",
     deepseek: "deepseek-chat",
     openrouter: "google/gemini-2.5-flash",
+    groq: "qwen/qwen3.8-27b",
+    "openrouter-free": "openrouter/free",
     custom: ""
   };
   var PROVIDER_NAMES = {
@@ -209,6 +211,8 @@ var __plugin = (() => {
     openai: "OpenAI",
     deepseek: "DeepSeek",
     openrouter: "OpenRouter",
+    groq: "Groq (plano Free)",
+    "openrouter-free": "OpenRouter gratuito",
     custom: "Personalizado"
   };
   var LANG_NAMES = {
@@ -219,7 +223,9 @@ var __plugin = (() => {
   var CHAT_ENDPOINTS = {
     openai: "https://api.openai.com/v1/chat/completions",
     deepseek: "https://api.deepseek.com/chat/completions",
-    openrouter: "https://openrouter.ai/api/v1/chat/completions"
+    openrouter: "https://openrouter.ai/api/v1/chat/completions",
+    groq: "https://api.groq.com/openai/v1/chat/completions",
+    "openrouter-free": "https://openrouter.ai/api/v1/chat/completions"
   };
   var REQUEST_TIMEOUT = 3e4;
   var discordToken = /(\x60{3,})(?!\x60)[\s\S]*?(?:\1(?!\x60)|(?![\s\S]))|(\x60{1,2})(?!\x60)[^\r\n]*?\2(?!\x60)|<(?:(?:@!?|@&|#)\d+|a?:[\w-]+:\d+|t:-?\d+(?::[tTdDfFR])?|\/[^>:\r\n]+:\d+|(?:https?:\/\/|discord:\/\/)[^\s<>]+)>|(?:@everyone|@here)\b|(?:\]\()(?:\\.|[^()\r\n\\]|\([^()\r\n]*\))+\)|(?:https?:\/\/|discord:\/\/|www\.)(?:[^<>\s\x60\[\]()*|]|\([^()<>\s\x60]+\))*(?:[^<>\s\x60\[\]()*|.,!?:;]|\([^()<>\s\x60]+\))|^[ \t]*(?:#{1,3}|>>>?|[-+*]|\d+[.)])(?=[ \t])[ \t]+|[ \t]*\r?\n[ \t]*|\\[\\*_~|\x60[\]()#!+.\->]|[*_~|]+|[\[\]]/gim;
@@ -315,8 +321,13 @@ var __plugin = (() => {
   __name(_TranslationRequestError, "TranslationRequestError");
   var TranslationRequestError = _TranslationRequestError;
   var pauses = /* @__PURE__ */ new Map();
+  function selectedModel(provider, model) {
+    if (provider === "groq" || provider === "openrouter-free") return DEFAULT_MODELS[provider];
+    return cleanString(model) || DEFAULT_MODELS[provider];
+  }
+  __name(selectedModel, "selectedModel");
   function pauseKey(provider, model) {
-    return provider + ":" + (cleanString(model).replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+    return provider + ":" + (provider === "deepl" ? "" : selectedModel(provider, model).replace(/^models\//, ""));
   }
   __name(pauseKey, "pauseKey");
   function translationPause(provider, model) {
@@ -478,7 +489,7 @@ var __plugin = (() => {
           return complete2(entry?.text);
         }, "parseDeepL"));
       } else {
-        const model = cleanString(config.model) || DEFAULT_MODELS[provider];
+        const model = selectedModel(provider, config.model);
         if (!model) throw new Error("Informe o modelo do provedor personalizado.");
         const instructions = systemPrompt(targetLang);
         if (provider === "gemini") {
@@ -510,6 +521,7 @@ var __plugin = (() => {
           return postJson(endpoint, { Authorization: "Bearer " + apiKey }, {
             model,
             temperature: 0.2,
+            ...provider === "groq" ? { reasoning_effort: "none" } : {},
             messages: [
               { role: "system", content: instructions },
               { role: "user", content: protectedText.text }
@@ -546,8 +558,9 @@ var __plugin = (() => {
     storage2.applyFilterToOutgoing ?? (storage2.applyFilterToOutgoing = true);
     storage2.provider ?? (storage2.provider = "gemini");
     if (typeof storage2.customEndpoint !== "string") storage2.customEndpoint = "";
-    if (!storage2.apiKeys || typeof storage2.apiKeys !== "object" || Array.isArray(storage2.apiKeys)) storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
+    if (!storage2.apiKeys || typeof storage2.apiKeys !== "object" || Array.isArray(storage2.apiKeys)) storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", custom: "" };
     if (!storage2.models || typeof storage2.models !== "object" || Array.isArray(storage2.models)) storage2.models = { ...DEFAULT_MODELS };
+    if (storage2.models.groq !== DEFAULT_MODELS.groq || storage2.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"]) storage2.models = { ...storage2.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"] };
     if (!(storage2.provider in PROVIDER_NAMES)) storage2.provider = "gemini";
     if (!(storage2.targetLang in LANG_NAMES)) storage2.targetLang = "PT-BR";
     if (!(storage2.outgoingLang in LANG_NAMES)) storage2.outgoingLang = "EN";
@@ -862,7 +875,7 @@ var __plugin = (() => {
     const apiKeyState = React.useState(cleanString(storage2.apiKeys?.[provider]));
     const apiKey = apiKeyState[0];
     const setApiKey = apiKeyState[1];
-    const savedModel = provider === "deepl" ? "" : cleanString(storage2.models?.[provider]) || DEFAULT_MODELS[provider];
+    const savedModel = provider === "deepl" ? "" : selectedModel(provider, storage2.models?.[provider]);
     const modelState = React.useState(savedModel);
     const model = modelState[0];
     const setModel = modelState[1];
@@ -942,7 +955,7 @@ var __plugin = (() => {
       __name(reportFailure, "reportFailure");
       try {
         const nextKey = cleanString(apiKey);
-        const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+        const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
         const nextEndpoint = provider === "custom" ? cleanString(endpoint) : void 0;
         if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
         stage = "requisi\xE7\xE3o e tradu\xE7\xE3o";
@@ -984,7 +997,7 @@ var __plugin = (() => {
     }, "testApi");
     const save = /* @__PURE__ */ __name(() => {
       const nextKey = cleanString(apiKey);
-      const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+      const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
       if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint) {
         storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
@@ -1003,7 +1016,7 @@ var __plugin = (() => {
         placeholder: "Cole a sua chave",
         secure: true
       }
-    ), provider !== "deepl" && provider !== "gemini" && /* @__PURE__ */ React.createElement(
+    ), provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && /* @__PURE__ */ React.createElement(
       ApiInput,
       {
         label: "Modelo",
@@ -1011,7 +1024,7 @@ var __plugin = (() => {
         onChange: setModel,
         placeholder: DEFAULT_MODELS[provider] || "Nome do modelo"
       }
-    ), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo de tradu\xE7\xE3o"), /* @__PURE__ */ React.createElement(
+    ), (provider === "groq" || provider === "openrouter-free") && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo gratuito"), /* @__PURE__ */ React.createElement(View, { style: styles.modelTrigger }, /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, provider === "groq" ? "GROQ \xB7 PLANO FREE" : "OPENROUTER \xB7 SOMENTE GRATUITOS"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, provider === "groq" ? "Qwen 3.8 27B" : "Free Models Router"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, DEFAULT_MODELS[provider]))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Use uma chave do plano Free da Groq. Limite publicado: 1.000 requisi\xE7\xF5es/dia, 30/min, sujeito tamb\xE9m a cotas de tokens. Contas pagas podem cobrar pelo uso." : "Roteamento somente para modelos gratuitos, sem troca para modelos pagos. Limite padr\xE3o: 50 requisi\xE7\xF5es/dia, 20/min."), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Crie sua chave em console.groq.com/keys" : "Crie sua chave em openrouter.ai/keys")), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo de tradu\xE7\xE3o"), /* @__PURE__ */ React.createElement(
       Pressable,
       {
         style: [styles.modelTrigger, catalogOpen && styles.modelTriggerOpen],
@@ -1141,7 +1154,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R28"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R29"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1477,7 +1490,7 @@ var __plugin = (() => {
     const pause = translationPause(storage2.provider, model);
     if (pause) return;
     for (const id of Array.from(queue)) {
-      if (inFlight.size >= (storage2.provider === "gemini" ? 1 : MAX_INFLIGHT)) break;
+      if (inFlight.size >= (["gemini", "groq", "openrouter-free"].includes(storage2.provider) ? 1 : MAX_INFLIGHT)) break;
       if (inFlight.has(cacheKey(id))) continue;
       queue.delete(id);
       startTranslation(id, controller, session);

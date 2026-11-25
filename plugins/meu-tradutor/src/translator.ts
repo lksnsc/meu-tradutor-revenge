@@ -12,6 +12,10 @@ export interface TranslatorConfig {
   onRequest?: () => void;
 }
 
+export function cleanString(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   gemini: "gemini-3.5-flash-lite",
   openai: "gpt-4o-mini",
@@ -141,7 +145,7 @@ export class TranslationRequestError extends Error {
 }
 const pauses = new Map<string, { until: number; reason: string }>();
 function pauseKey(provider: ProviderId, model?: string): string {
-  return provider + ":" + (model?.trim().replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+  return provider + ":" + (cleanString(model).replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
 }
 export function translationPause(provider: ProviderId, model?: string) {
   const key = pauseKey(provider, model);
@@ -248,7 +252,7 @@ async function postJson<T>(
 
 export async function translateText(text: string, config: TranslatorConfig): Promise<string> {
   const { provider, targetLang } = config;
-  const apiKey = config.apiKey.trim();
+  const apiKey = cleanString(config.apiKey);
   if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
   if (!hasTranslatableText(text)) return text;
   const pause = translationPause(provider, config.model);
@@ -276,7 +280,7 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
     if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
     translated = entry?.text;
   } else {
-    const model = config.model?.trim() || DEFAULT_MODELS[provider];
+    const model = cleanString(config.model) || DEFAULT_MODELS[provider];
     if (!model) throw new Error("Informe o modelo do provedor personalizado.");
     const instructions = systemPrompt(targetLang);
 
@@ -296,7 +300,7 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
       }
       translated = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text ?? "").join("");
     } else {
-      const endpoint = provider === "custom" ? config.customEndpoint?.trim() : CHAT_ENDPOINTS[provider];
+      const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
       if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
         throw new Error("Informe a URL HTTPS completa do endpoint compatível com OpenAI.");
       }

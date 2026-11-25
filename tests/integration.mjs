@@ -94,7 +94,37 @@ try {
   assert.equal(actions.sendMessage("1",{content:"normal"}),"normal");
   assert.equal(await actions.sendMessage("1",{content:"!pt Hello"}),"Olá");
   assert.equal(sends.at(-1).content,"Olá");
+  // Reproduce incomplete/missing endpoint at runtime, including an old storage entry.
+  storage.customEndpoint = undefined;
   await act(async()=>{settings=Renderer.create(React.createElement(plugin.settings));});
+  const press = label => {
+    const node=settings.root.findAllByType("Text").find(x=>x.props.children===label);
+    assert.ok(node,label);
+    let p=node.parent;
+    while(p&&!p.props.onPress)p=p.parent;
+    assert.ok(p?.props.onPress,label);
+    p.props.onPress();
+  };
+  await act(async()=>press("API"));
+  const prior=requests.length;
+  await act(async()=>{press("Testar API agora");await pause(30);});
+  assert.equal(requests.length,prior+1,"Teste API deve chegar à rede mesmo sem endpoint customizado");
+  const hasText=phrase=>settings.root.findAllByType("Text").some(x=>typeof x.props.children==="string"&&x.props.children.includes(phrase));
+  assert.ok(hasText("Resposta da API"),"Teste não exibiu sucesso");
+  await act(async()=>press("Salvar API"));
+  assert.ok(storage.apiKeys.gemini==="synthetic-key");
+  await act(async()=>{press("Testar, salvar e ativar tradução");await pause(40);});
+  assert.ok(hasText("Configuração salva e tradução automática ativada"),"Ativação por teste falhou");
+  assert.equal(storage.autoTranslate,true);
+  const keyInput=settings.root.findAllByType("TextInput").find(x=>x.props.accessibilityLabel==="Chave de API");
+  assert.ok(keyInput);
+  await act(async()=>keyInput.props.onChangeText(undefined));
+  const beforeEmpty=requests.length;
+  await act(async()=>{press("Testar API agora");await pause(20);});
+  assert.equal(requests.length,beforeEmpty,"Chave ausente não deve gerar chamada");
+  assert.ok(hasText("Informe a chave de API"),"Validação da chave ausente");
+  await act(async()=>keyInput.props.onChangeText("synthetic-key"));
+  console.log("Regressão: botões da API executados com endpoint indefinido e chave ausente.");
   for (const tab of ["API","Estatísticas","Filtros","Tradução"]) {
     await act(async()=>{
       const label=settings.root.findAllByType("Text").find(x=>x.props.children===tab);

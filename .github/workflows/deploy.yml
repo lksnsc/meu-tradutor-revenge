@@ -30,6 +30,10 @@ jobs:
       - run: npm install
       - run: npm run typecheck
       - run: npm run build
+      - name: Instalar dependências reais de teste
+        run: npm install --no-save --package-lock=false spitroast@1.4.4 react@19.1.0 react-test-renderer@19.1.0
+      - name: Executar integração antes de publicar
+        run: node tests/integration.mjs
       - name: Publicar bundle também no repositório
         run: |
           mkdir -p release/meu-tradutor

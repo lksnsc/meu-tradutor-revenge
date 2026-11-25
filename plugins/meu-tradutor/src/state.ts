@@ -55,9 +55,9 @@ export function initializeSettings(): void {
   storage.filterGuilds ??= [];
   storage.applyFilterToOutgoing ??= true;
   storage.provider ??= "gemini";
-  storage.customEndpoint ??= "";
-  storage.apiKeys ??= { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
-  storage.models ??= { ...DEFAULT_MODELS };
+  if (typeof storage.customEndpoint !== "string") storage.customEndpoint = "";
+  if (!storage.apiKeys || typeof storage.apiKeys !== "object" || Array.isArray(storage.apiKeys)) storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
+  if (!storage.models || typeof storage.models !== "object" || Array.isArray(storage.models)) storage.models = { ...DEFAULT_MODELS };
   if (!(storage.provider in PROVIDER_NAMES)) storage.provider = "gemini";
   if (!(storage.targetLang in LANG_NAMES)) storage.targetLang = "PT-BR";
   if (!(storage.outgoingLang in LANG_NAMES)) storage.outgoingLang = "EN";

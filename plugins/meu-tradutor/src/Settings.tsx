@@ -2,7 +2,7 @@ import { React, ReactNative } from "@vendetta/metro/common";
 import { useProxy } from "@vendetta/storage";
 import { showToast } from "@vendetta/ui/toasts";
 import { storage, stores, type FilterMode, type Stats } from "./state";
-import { translateText, DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
+import { cleanString, translateText, DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
 
 const { View, Text, ScrollView, Pressable, TextInput, Switch } = ReactNative;
 
@@ -173,7 +173,7 @@ function Filters({ onIncomingChange }: SettingsProps): JSX.Element {
   const manual = manualState[0];
   const setManual = manualState[1];
   const save = (field: "filterChannels" | "filterGuilds", input?: string | null, manually = false) => {
-    const id = input?.trim();
+    const id = cleanString(input);
     if (!id || !/^\d{1,20}$/.test(id) || /^0+$/.test(id)) {
       showToast(manually ? "Informe um ID numérico válido." : "Abra um canal ou servidor e tente novamente.");
       return;
@@ -246,8 +246,8 @@ function ApiInput({
       <Text style={styles.label}>{label}</Text>
       <TextInput
         accessibilityLabel={label}
-        value={value}
-        onChangeText={onChange}
+        value={typeof value === "string" ? value : ""}
+        onChangeText={text => onChange(typeof text === "string" ? text : "")}
         secureTextEntry={secure}
         autoCapitalize="none"
         autoCorrect={false}
@@ -281,7 +281,7 @@ interface GoogleModel {
   supportedGenerationMethods?: string[];
 }
 async function loadGeminiModels(key: string): Promise<Record<string, string>> {
-  if (!key.trim()) throw new Error("Informe sua chave de API Gemini.");
+  if (!cleanString(key)) throw new Error("Informe sua chave de API Gemini.");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30000);
   const models: Record<string, string> = {};
@@ -292,7 +292,7 @@ async function loadGeminiModels(key: string): Promise<Record<string, string>> {
       const url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
         + (token ? "&pageToken=" + encodeURIComponent(token) : "");
       const response = await fetch(url, {
-        headers: { "x-goog-api-key": key.trim() },
+        headers: { "x-goog-api-key": cleanString(key) },
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("Google retornou HTTP " + response.status + " ao listar modelos.");
@@ -316,14 +316,14 @@ function ProviderFields({
   provider, onIncomingChange,
 }: { provider: ProviderId; onIncomingChange: SettingsProps["onIncomingChange"] }): JSX.Element {
   const { colors, styles } = getTheme();
-  const apiKeyState = React.useState(storage.apiKeys[provider] ?? "");
+  const apiKeyState = React.useState(cleanString(storage.apiKeys?.[provider]));
   const apiKey = apiKeyState[0];
   const setApiKey = apiKeyState[1];
-  const savedModel = provider === "deepl" ? "" : storage.models[provider] ?? DEFAULT_MODELS[provider];
+  const savedModel = provider === "deepl" ? "" : cleanString(storage.models?.[provider]) || DEFAULT_MODELS[provider];
   const modelState = React.useState(savedModel);
   const model = modelState[0];
   const setModel = modelState[1];
-  const endpointState = React.useState(storage.customEndpoint);
+  const endpointState = React.useState(cleanString(storage.customEndpoint));
   const endpoint = endpointState[0];
   const setEndpoint = endpointState[1];
   const testState = React.useState("");
@@ -352,7 +352,7 @@ function ProviderFields({
     setLoading(true);
     setCatalogStatus("Consultando catálogo do Google...");
     try {
-      const result = await loadGeminiModels(apiKey);
+      const result = await loadGeminiModels(cleanString(apiKey));
       setCatalog(result);
       setCatalogOpen(true);
       setCatalogStatus(Object.keys(result).length + " modelos encontrados. Teste o modelo escolhido para verificar acesso e cota.");
@@ -360,32 +360,36 @@ function ProviderFields({
       setCatalogStatus("Falha na consulta: " + (error instanceof Error ? error.message : String(error)));
     } finally { setLoading(false); }
   };
-  const matchingModels = Object.keys(catalog).filter(id => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
+  const matchingModels = Object.keys(catalog).filter(id => (id + " " + catalog[id]).toLowerCase().includes(cleanString(query).toLowerCase()));
   const testApi = async (activate = false) => {
     if (testing) return;
     setTesting(true);
     setTestResult("Consultando o provedor...");
     try {
-      const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
+      const nextKey = cleanString(apiKey);
+      const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+      const nextEndpoint = provider === "custom" ? cleanString(endpoint) : undefined;
+      if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+      const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
       if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo não traduziu a frase de teste.");
       if (activate) {
-        storage.apiKeys = { ...storage.apiKeys, [provider]: apiKey.trim() };
-        if (provider !== "deepl") storage.models = { ...storage.models, [provider]: model.trim() };
-        if (provider === "custom") storage.customEndpoint = endpoint.trim();
+        storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
+        if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
+        if (provider === "custom") storage.customEndpoint = nextEndpoint ?? "";
         storage.provider = provider;
         storage.autoTranslate = true;
         onIncomingChange(true);
       }
-      setTestResult("Resposta da API (" + (model.trim() || provider) + "): " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
+      setTestResult("Resposta da API (" + (nextModel || provider) + "): " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
     } catch (error) {
       setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
     } finally { setTesting(false); }
   };
 
   const save = () => {
-    const nextKey = apiKey.trim();
-    const nextModel = model.trim();
-    const nextEndpoint = endpoint.trim();
+    const nextKey = cleanString(apiKey);
+    const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+    const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
     if (nextKey !== (storage.apiKeys[provider] ?? "")
       || nextModel !== savedModel
       || (provider === "custom" && nextEndpoint !== storage.customEndpoint)) {

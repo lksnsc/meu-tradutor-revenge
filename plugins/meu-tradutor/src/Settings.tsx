@@ -344,6 +344,9 @@ function ProviderFields({
   const loadingState = React.useState(false);
   const loading = loadingState[0];
   const setLoading = loadingState[1];
+  const manualModelState = React.useState(false);
+  const manualModel = manualModelState[0];
+  const setManualModel = manualModelState[1];
   const searchState = React.useState("");
   const query = searchState[0];
   const setQuery = searchState[1];
@@ -361,6 +364,17 @@ function ProviderFields({
     } finally { setLoading(false); }
   };
   const matchingModels = Object.keys(catalog).filter(id => (id + " " + catalog[id]).toLowerCase().includes(cleanString(query).toLowerCase()));
+  const family = (id: string): string => {
+    if (/^gemini-4(?:[.-]|$)/i.test(id)) return "Gemini 4";
+    if (/^gemini-3(?:[.-]|$)/i.test(id)) return "Gemini 3";
+    if (/^gemini-2(?:[.-]|$)/i.test(id)) return "Gemini 2";
+    if (/^gemma-/i.test(id)) return "Gemma";
+    return "Outros modelos";
+  };
+  const groups = ["Gemini 4", "Gemini 3", "Gemini 2", "Gemma", "Outros modelos"];
+  const activeModel = cleanString(model) || savedModel;
+  const pickModel = (id: string) => { setModel(id); setCatalogOpen(false); setQuery(""); setManualModel(false); setTestResult(""); };
+
   const testApi = async (activate = false) => {
     if (testing) return;
     setTesting(true);
@@ -405,31 +419,70 @@ function ProviderFields({
     <View>
       <ApiInput label="Chave de API" value={apiKey} onChange={setApiKey}
         placeholder="Cole a sua chave" secure />
-      {provider !== "deepl" && (
+      {provider !== "deepl" && provider !== "gemini" && (
         <ApiInput label="Modelo" value={model} onChange={setModel}
           placeholder={DEFAULT_MODELS[provider] || "Nome do modelo"} />
       )}
       {provider === "gemini" && (
-        <View style={styles.field}>
-          <Text style={styles.label}>Catálogo de modelos Gemini</Text>
-          <Text style={styles.hint}>{catalogStatus}</Text>
-          <Button label={catalogOpen ? "Recolher modelos" : "Escolher modelo"} onPress={() => setCatalogOpen(!catalogOpen)} />
-          <Button label={loading ? "Consultando..." : "Atualizar lista pela API"} onPress={() => { void refreshCatalog(); }} />
+        <View style={styles.modelSection}>
+          <Text style={styles.label}>Modelo de tradução</Text>
+          <Pressable style={[styles.modelTrigger, catalogOpen && styles.modelTriggerOpen]}
+            accessibilityLabel="Escolher modelo" accessibilityRole="button"
+            onPress={() => { setCatalogOpen(!catalogOpen); setQuery(""); setManualModel(false); }}>
+            <View style={styles.modelMain}>
+              <Text style={styles.modelEyebrow}>{activeModel === savedModel ? "MODELO SALVO" : "SELEÇÃO NÃO SALVA"}</Text>
+              <Text style={styles.modelTitle}>{catalog[activeModel] || activeModel || "Selecionar modelo"}</Text>
+              {catalog[activeModel] && catalog[activeModel] !== activeModel && <Text style={styles.modelId}>{activeModel}</Text>}
+            </View>
+            <Text style={styles.modelChevron}>{catalogOpen ? "⌃" : "⌄"}</Text>
+          </Pressable>
           {catalogOpen && (
-            <View>
-              <ApiInput label="Pesquisar modelo" value={query} onChange={setQuery} placeholder="Gemini 4, Flash, Gemma..." />
-              {matchingModels.length === 0 && <Text style={styles.hint}>Nenhum modelo encontrado.</Text>}
-              {matchingModels.map(id => (
-                <Pressable key={id} style={[styles.option, model === id && styles.selected]}
-                  accessibilityRole="button" accessibilityState={{ selected: model === id }}
-                  onPress={() => { setModel(id); setCatalogOpen(false); setTestResult(""); }}>
-                  <Text style={[styles.optionText, model === id && styles.selectedText]}>{catalog[id]}</Text>
-                  <Text style={[styles.hint, model === id && styles.selectedText]}>{id}</Text>
-                </Pressable>
-              ))}
+            <View style={styles.modelPanel}>
+              <View style={styles.modelPanelHead}>
+                <Text style={styles.modelCount}>{matchingModels.length} modelos</Text>
+                <Pressable accessibilityRole="button" onPress={() => { setCatalogOpen(false); setQuery(""); }}><Text style={styles.modelLink}>Fechar ×</Text></Pressable>
+              </View>
+              <TextInput accessibilityLabel="Pesquisar modelo" value={typeof query === "string" ? query : ""}
+                onChangeText={text => setQuery(typeof text === "string" ? text : "")}
+                autoCorrect={false} autoCapitalize="none" placeholder="Buscar modelo..." placeholderTextColor={colors.muted}
+                style={styles.modelSearch} />
+              <ScrollView style={styles.modelList} nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator>
+                {matchingModels.length === 0 && <Text style={styles.modelEmpty}>Nenhum modelo encontrado.</Text>}
+                {groups.map(group => {
+                  const ids = matchingModels.filter(id => family(id) === group);
+                  if (!ids.length) return null;
+                  return (
+                    <View key={group}>
+                      <Text style={styles.modelGroup}>{group}</Text>
+                      {ids.map(id => (
+                        <Pressable key={id} style={[styles.modelRow, activeModel === id && styles.modelRowActive]}
+                          accessibilityLabel={"Selecionar " + catalog[id]} accessibilityRole="button"
+                          accessibilityState={{ selected: activeModel === id }} onPress={() => pickModel(id)}>
+                          <Text style={[styles.modelDot, activeModel === id && styles.modelDotActive]}>{activeModel === id ? "●" : "○"}</Text>
+                          <View style={styles.modelMain}>
+                            <Text style={styles.modelRowTitle}>{catalog[id]}</Text>
+                            {catalog[id] !== id && <Text style={styles.modelId}>{id}</Text>}
+                          </View>
+                          {activeModel === id && <Text style={styles.modelCheck}>✓</Text>}
+                        </Pressable>
+                      ))}
+                    </View>
+                  );
+                })}
+              </ScrollView>
             </View>
           )}
-          <Text style={styles.hint}>Modelos de texto compatíveis com generateContent. O catálogo não garante acesso ou gratuidade; use Testar API agora e depois Salvar API. Você também pode informar o ID manualmente.</Text>
+          <View style={styles.modelTools}>
+            <Pressable style={styles.modelTool} accessibilityRole="button" onPress={() => { void refreshCatalog(); }}>
+              <Text style={styles.modelLink}>{loading ? "Consultando..." : "↻ Atualizar lista pela API"}</Text>
+            </Pressable>
+            <Pressable style={styles.modelTool} accessibilityRole="button" onPress={() => { setManualModel(!manualModel); setCatalogOpen(false); }}>
+              <Text style={styles.modelLink}>{manualModel ? "Ocultar ID" : "Editar ID"}</Text>
+            </Pressable>
+          </View>
+          {manualModel && <ApiInput label="ID do modelo" value={model} onChange={value => { setModel(value); setTestResult(""); }}
+            placeholder={DEFAULT_MODELS.gemini} />}
+          <Text style={styles.hint}>{catalogStatus}</Text>
         </View>
       )}
       {provider === "custom" && (
@@ -575,5 +628,29 @@ function makeStyles(colors: typeof palettes["kaiju-dark"]) {
     listName: { flex: 1, color: colors.text, marginRight: 10 },
     remove: { color: colors.danger, fontWeight: "800" },
     metric: { color: colors.text, fontSize: 18, fontWeight: "900" },
+    modelSection: { marginBottom: 14 },
+    modelTrigger: { ...edge, borderColor: colors.outline, backgroundColor: colors.input, flexDirection: "row", alignItems: "center", padding: 12, minHeight: 70 },
+    modelTriggerOpen: { borderColor: colors.accent },
+    modelMain: { flex: 1 },
+    modelEyebrow: { color: colors.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1, marginBottom: 4 },
+    modelTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
+    modelId: { color: colors.muted, fontSize: 10, marginTop: 2 },
+    modelChevron: { color: colors.text, fontSize: 24, marginLeft: 10 },
+    modelPanel: { ...edge, borderColor: colors.outline, backgroundColor: colors.card, marginTop: 5, padding: 8 },
+    modelPanelHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4, marginBottom: 6 },
+    modelCount: { color: colors.muted, fontSize: 11, fontWeight: "800" },
+    modelSearch: { ...edge, borderWidth: 1, borderColor: colors.outline, backgroundColor: colors.input, color: colors.text, minHeight: 42, paddingHorizontal: 10, marginBottom: 5 },
+    modelList: { maxHeight: 248 },
+    modelGroup: { color: colors.muted, fontSize: 10, fontWeight: "900", letterSpacing: 1, textTransform: "uppercase", paddingHorizontal: 8, paddingTop: 12, paddingBottom: 5 },
+    modelRow: { flexDirection: "row", alignItems: "center", minHeight: 48, paddingVertical: 6, paddingHorizontal: 8, borderLeftWidth: 3, borderLeftColor: "transparent", borderBottomWidth: 1, borderBottomColor: colors.outline },
+    modelRowActive: { borderLeftColor: colors.accent, backgroundColor: colors.option },
+    modelDot: { color: colors.muted, fontSize: 15, marginRight: 9 },
+    modelDotActive: { color: colors.accent },
+    modelRowTitle: { color: colors.text, fontSize: 13, fontWeight: "700" },
+    modelCheck: { color: colors.accent, fontSize: 16, fontWeight: "900", marginLeft: 6 },
+    modelEmpty: { color: colors.muted, padding: 14, fontSize: 12 },
+    modelTools: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 4, flexWrap: "wrap" },
+    modelTool: { minHeight: 44, justifyContent: "center", paddingHorizontal: 3 },
+    modelLink: { color: colors.text, fontSize: 12, fontWeight: "800" },
   };
 }

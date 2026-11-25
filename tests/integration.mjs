@@ -106,6 +106,18 @@ try {
     p.props.onPress();
   };
   await act(async()=>press("API"));
+  const byLabel=(type,label)=>settings.root.findAllByType(type).find(x=>x.props.accessibilityLabel===label);
+  await act(async()=>byLabel("Pressable","Escolher modelo").props.onPress());
+  assert.ok(settings.root.findAllByType("ScrollView").some(x=>x.props.style?.maxHeight===248),"Lista precisa ter altura limitada");
+  await act(async()=>byLabel("TextInput","Pesquisar modelo").props.onChangeText("Hydrogen"));
+  assert.ok(byLabel("Pressable","Selecionar Gemini 4 Hydrogen"));
+  assert.ok(!byLabel("Pressable","Selecionar Gemini 4 Neon"));
+  await act(async()=>byLabel("Pressable","Selecionar Gemini 4 Hydrogen").props.onPress());
+  assert.ok(!byLabel("TextInput","Pesquisar modelo"),"O seletor deve fechar após a escolha");
+  await act(async()=>press("Editar ID"));
+  await act(async()=>byLabel("TextInput","ID do modelo").props.onChangeText("integration-model"));
+  await act(async()=>press("Ocultar ID"));
+  console.log("Regressão: seletor compacto, pesquisa, escolha e edição de ID aprovadas.");
   const prior=requests.length;
   await act(async()=>{press("Testar API agora");await pause(30);});
   assert.equal(requests.length,prior+1,"Teste API deve chegar à rede mesmo sem endpoint customizado");

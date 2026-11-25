@@ -66,6 +66,8 @@ declare module "@vendetta/metro/common" {
     ScrollView: (props: CommonProps & {
       contentContainerStyle?: object;
       keyboardShouldPersistTaps?: "handled";
+      nestedScrollEnabled?: boolean;
+      showsVerticalScrollIndicator?: boolean;
     }) => JSX.Element;
     Pressable: (props: PressableProps) => JSX.Element;
     TextInput: (props: TextInputProps) => JSX.Element;

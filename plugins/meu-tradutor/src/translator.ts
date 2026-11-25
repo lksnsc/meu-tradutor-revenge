@@ -1,4 +1,4 @@
-export type ProviderId = "gemini" | "deepl" | "openai" | "deepseek" | "openrouter" | "custom";
+export type ProviderId = "gemini" | "deepl" | "openai" | "deepseek" | "openrouter" | "groq" | "openrouter-free" | "custom";
 export type LangCode = "PT-BR" | "EN" | "ES";
 export type ModelProvider = Exclude<ProviderId, "deepl">;
 
@@ -22,6 +22,8 @@ export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   openai: "gpt-4o-mini",
   deepseek: "deepseek-chat",
   openrouter: "google/gemini-2.5-flash",
+  groq: "qwen/qwen3.8-27b",
+  "openrouter-free": "openrouter/free",
   custom: "",
 };
 
@@ -31,6 +33,8 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   openai: "OpenAI",
   deepseek: "DeepSeek",
   openrouter: "OpenRouter",
+  groq: "Groq (plano Free)",
+  "openrouter-free": "OpenRouter gratuito",
   custom: "Personalizado",
 };
 
@@ -44,6 +48,8 @@ const CHAT_ENDPOINTS = {
   openai: "https://api.openai.com/v1/chat/completions",
   deepseek: "https://api.deepseek.com/chat/completions",
   openrouter: "https://openrouter.ai/api/v1/chat/completions",
+  groq: "https://api.groq.com/openai/v1/chat/completions",
+  "openrouter-free": "https://openrouter.ai/api/v1/chat/completions",
 };
 
 const REQUEST_TIMEOUT = 30_000;
@@ -146,8 +152,12 @@ export class TranslationRequestError extends Error {
   constructor(message: string, readonly status = 0, readonly retryMs = 0) { super(message); }
 }
 const pauses = new Map<string, { until: number; reason: string }>();
+export function selectedModel(provider: ModelProvider, model?: string): string {
+  if (provider === "groq" || provider === "openrouter-free") return DEFAULT_MODELS[provider];
+  return cleanString(model) || DEFAULT_MODELS[provider];
+}
 function pauseKey(provider: ProviderId, model?: string): string {
-  return provider + ":" + (cleanString(model).replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+  return provider + ":" + (provider === "deepl" ? "" : selectedModel(provider, model).replace(/^models\//, ""));
 }
 export function translationPause(provider: ProviderId, model?: string) {
   const key = pauseKey(provider, model);
@@ -307,7 +317,7 @@ export function translateText(text: string, config: TranslatorConfig): Promise<s
       return complete(entry?.text);
     });
   } else {
-    const model = cleanString(config.model) || DEFAULT_MODELS[provider];
+    const model = selectedModel(provider, config.model);
     if (!model) throw new Error("Informe o modelo do provedor personalizado.");
     const instructions = systemPrompt(targetLang);
 
@@ -345,6 +355,7 @@ export function translateText(text: string, config: TranslatorConfig): Promise<s
       }>(endpoint, { Authorization: "Bearer " + apiKey }, {
         model,
         temperature: 0.2,
+        ...(provider === "groq" ? { reasoning_effort: "none" } : {}),
         messages: [
           { role: "system", content: instructions },
           { role: "user", content: protectedText.text },

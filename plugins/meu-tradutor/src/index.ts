@@ -261,7 +261,7 @@ function pumpQueue(): void {
   const pause = translationPause(storage.provider, model);
   if (pause) return;
   for (const id of Array.from(queue)) {
-    if (inFlight.size >= (storage.provider === "gemini" ? 1 : MAX_INFLIGHT)) break;
+    if (inFlight.size >= (["gemini", "groq", "openrouter-free"].includes(storage.provider) ? 1 : MAX_INFLIGHT)) break;
     if (inFlight.has(cacheKey(id))) continue;
     queue.delete(id);
     startTranslation(id, controller, session);

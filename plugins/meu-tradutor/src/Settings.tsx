@@ -2,7 +2,7 @@ import { React, ReactNative } from "@vendetta/metro/common";
 import { useProxy } from "@vendetta/storage";
 import { showToast } from "@vendetta/ui/toasts";
 import { storage, stores, type FilterMode, type Stats } from "./state";
-import { cleanString, translateText, DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
+import { cleanString, translateText, selectedModel, DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
 
 const { View, Text, ScrollView, Pressable, TextInput, Switch } = ReactNative;
 
@@ -319,7 +319,7 @@ function ProviderFields({
   const apiKeyState = React.useState(cleanString(storage.apiKeys?.[provider]));
   const apiKey = apiKeyState[0];
   const setApiKey = apiKeyState[1];
-  const savedModel = provider === "deepl" ? "" : cleanString(storage.models?.[provider]) || DEFAULT_MODELS[provider];
+  const savedModel = provider === "deepl" ? "" : selectedModel(provider, storage.models?.[provider]);
   const modelState = React.useState(savedModel);
   const model = modelState[0];
   const setModel = modelState[1];
@@ -394,7 +394,7 @@ function ProviderFields({
     }
     try {
       const nextKey = cleanString(apiKey);
-      const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+      const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : undefined;
       if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
       stage = "requisição e tradução";
@@ -429,7 +429,7 @@ function ProviderFields({
 
   const save = () => {
     const nextKey = cleanString(apiKey);
-    const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+    const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
     const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
     if (nextKey !== (storage.apiKeys[provider] ?? "")
       || nextModel !== savedModel
@@ -446,9 +446,23 @@ function ProviderFields({
     <View>
       <ApiInput label="Chave de API" value={apiKey} onChange={setApiKey}
         placeholder="Cole a sua chave" secure />
-      {provider !== "deepl" && provider !== "gemini" && (
+      {provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && (
         <ApiInput label="Modelo" value={model} onChange={setModel}
           placeholder={DEFAULT_MODELS[provider] || "Nome do modelo"} />
+      )}
+      {(provider === "groq" || provider === "openrouter-free") && (
+        <View style={styles.modelSection}>
+          <Text style={styles.label}>Modelo gratuito</Text>
+          <View style={styles.modelTrigger}>
+            <View style={styles.modelMain}>
+              <Text style={styles.modelEyebrow}>{provider === "groq" ? "GROQ · PLANO FREE" : "OPENROUTER · SOMENTE GRATUITOS"}</Text>
+              <Text style={styles.modelTitle}>{provider === "groq" ? "Qwen 3.8 27B" : "Free Models Router"}</Text>
+              <Text style={styles.modelId}>{DEFAULT_MODELS[provider]}</Text>
+            </View>
+          </View>
+          <Text style={styles.hint}>{provider === "groq" ? "Use uma chave do plano Free da Groq. Limite publicado: 1.000 requisições/dia, 30/min, sujeito também a cotas de tokens. Contas pagas podem cobrar pelo uso." : "Roteamento somente para modelos gratuitos, sem troca para modelos pagos. Limite padrão: 50 requisições/dia, 20/min."}</Text>
+          <Text style={styles.hint}>{provider === "groq" ? "Crie sua chave em console.groq.com/keys" : "Crie sua chave em openrouter.ai/keys"}</Text>
+        </View>
       )}
       {provider === "gemini" && (
         <View style={styles.modelSection}>
@@ -595,7 +609,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
-        <Text style={styles.hint}>by NSC · R28</Text>
+        <Text style={styles.hint}>by NSC · R29</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>

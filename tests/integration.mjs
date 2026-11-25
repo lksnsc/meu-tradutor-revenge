@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R28"));
+assert.ok(code.includes("R29"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -73,7 +73,18 @@ const vendetta={
 const originalFetch=globalThis.fetch;
 let httpError=0;
 let malformedResponse=false;
+const freeCalls=[];
 globalThis.fetch=async(url,init)=>{
+  if (url === "https://api.groq.com/openai/v1/chat/completions" || url === "https://openrouter.ai/api/v1/chat/completions") {
+    const body=JSON.parse(init.body);
+    const isGroq=url.includes("api.groq.com");
+    assert.equal(init.headers.Authorization,"Bearer synthetic-free-key");
+    assert.equal(body.model,isGroq?"qwen/qwen3.8-27b":"openrouter/free");
+    assert.ok(!body.models);
+    if(isGroq) assert.equal(body.reasoning_effort,"none");
+    freeCalls.push(body.model);
+    return {ok:true,status:200,json:async()=>({choices:[{finish_reason:"stop",message:{content:"Bom dia, como vai?"}}]})};
+  }
   assert.match(url,/^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\//);
   assert.equal(init.headers["x-goog-api-key"],"synthetic-key");
   assert.ok(!url.includes("synthetic-key"));
@@ -160,6 +171,17 @@ try {
   assert.ok(hasText("Informe a chave de API"),"Validação da chave ausente");
   await act(async()=>keyInput.props.onChangeText("synthetic-key"));
   console.log("Regressão: botões da API executados com endpoint indefinido e chave ausente.");
+  await act(async()=>{storage.autoTranslate=false;await pause(20);});
+  for(const name of ["Groq (plano Free)","OpenRouter gratuito"]){
+    await act(async()=>press(name));
+    const field=byLabel("TextInput","Chave de API");
+    await act(async()=>field.props.onChangeText("synthetic-free-key"));
+    await act(async()=>{press("Testar API agora");await pause(30);});
+    assert.ok(hasText("Tradução (PT-BR): Bom dia, como vai?"));
+    assert.ok(hasText("HTTP 200"));
+  }
+  assert.deepEqual(freeCalls,["qwen/qwen3.8-27b","openrouter/free"]);
+  await act(async()=>{press("Gemini"); storage.autoTranslate=true;await pause(30);});
   for (const tab of ["API","Estatísticas","Filtros","Tradução"]) {
     await act(async()=>{
       const label=settings.root.findAllByType("Text").find(x=>x.props.children===tab);

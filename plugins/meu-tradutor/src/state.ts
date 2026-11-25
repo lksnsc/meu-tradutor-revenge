@@ -56,8 +56,9 @@ export function initializeSettings(): void {
   storage.applyFilterToOutgoing ??= true;
   storage.provider ??= "gemini";
   if (typeof storage.customEndpoint !== "string") storage.customEndpoint = "";
-  if (!storage.apiKeys || typeof storage.apiKeys !== "object" || Array.isArray(storage.apiKeys)) storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
+  if (!storage.apiKeys || typeof storage.apiKeys !== "object" || Array.isArray(storage.apiKeys)) storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", custom: "" };
   if (!storage.models || typeof storage.models !== "object" || Array.isArray(storage.models)) storage.models = { ...DEFAULT_MODELS };
+  if (storage.models.groq !== DEFAULT_MODELS.groq || storage.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"]) storage.models = { ...storage.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"] };
   if (!(storage.provider in PROVIDER_NAMES)) storage.provider = "gemini";
   if (!(storage.targetLang in LANG_NAMES)) storage.targetLang = "PT-BR";
   if (!(storage.outgoingLang in LANG_NAMES)) storage.outgoingLang = "EN";

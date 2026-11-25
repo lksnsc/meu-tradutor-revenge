@@ -1,16 +1,11 @@
 (() => {
 "use strict";
 var __plugin = (() => {
-  var __create = Object.create;
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames = Object.getOwnPropertyNames;
-  var __getProtoOf = Object.getPrototypeOf;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
   var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
-  var __commonJS = (cb, mod) => function __require() {
-    return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-  };
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -23,43 +18,7 @@ var __plugin = (() => {
     }
     return to;
   };
-  var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-    // If the importer is in node compatibility mode or this is not an ESM
-    // file that has been converted to a CommonJS file using a Babel-
-    // compatible transform (i.e. "__esModule" has not been set), then set
-    // "default" to the CommonJS "module.exports" for node compatibility.
-    isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-    mod
-  ));
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-  // vendetta-runtime:@vendetta/metro
-  var require_metro = __commonJS({
-    "vendetta-runtime:@vendetta/metro"(exports, module) {
-      module.exports = vendetta.metro;
-    }
-  });
-
-  // vendetta-runtime:@vendetta/patcher
-  var require_patcher = __commonJS({
-    "vendetta-runtime:@vendetta/patcher"(exports, module) {
-      module.exports = vendetta.patcher;
-    }
-  });
-
-  // vendetta-runtime:@vendetta/ui/toasts
-  var require_toasts = __commonJS({
-    "vendetta-runtime:@vendetta/ui/toasts"(exports, module) {
-      module.exports = vendetta.ui.toasts;
-    }
-  });
-
-  // vendetta-runtime:@vendetta/plugin
-  var require_plugin = __commonJS({
-    "vendetta-runtime:@vendetta/plugin"(exports, module) {
-      module.exports = vendetta.plugin;
-    }
-  });
 
   // plugins/meu-tradutor/src/index.ts
   var index_exports = {};
@@ -67,11 +26,33 @@ var __plugin = (() => {
     clearCacheAndRetranslate: () => clearCacheAndRetranslate,
     default: () => index_default
   });
-  var import_metro2 = __toESM(require_metro(), 1);
+
+  // vendetta-runtime:@vendetta/metro
+  var metro = vendetta.metro;
+  function findByName(name, defaultExp) {
+    return metro.findByName(name, defaultExp);
+  }
+  __name(findByName, "findByName");
+  function findByProps(...props) {
+    return metro.findByProps(...props);
+  }
+  __name(findByProps, "findByProps");
+  function findByStoreName(name) {
+    return metro.findByStoreName?.(name);
+  }
+  __name(findByStoreName, "findByStoreName");
+  function findByPropsAll(...props) {
+    return metro.findByPropsAll?.(...props) ?? [];
+  }
+  __name(findByPropsAll, "findByPropsAll");
+  function find(filter) {
+    return metro.find?.(filter);
+  }
+  __name(find, "find");
 
   // vendetta-runtime:@vendetta/metro/common
-  var metro = vendetta.metro;
-  var common = metro.common;
+  var metro2 = vendetta.metro;
+  var common = metro2.common;
   var reactKeys = ["createElement", "useState", "useEffect", "useReducer"];
   var nativeKeys = ["View", "Text", "ScrollView", "TextInput", "Pressable", "Switch"];
   function captureReact(value) {
@@ -132,41 +113,66 @@ var __plugin = (() => {
     const direct = select(capture, candidates);
     if (direct) return direct;
     try {
-      const matches = metro.findByPropsAll?.(...keys) || [];
+      const matches = metro2.findByPropsAll?.(...keys) || [];
       return select(capture, Array.from(matches, (value) => () => value));
     } catch {
     }
   }
   __name(search, "search");
   var React = search(captureReact, reactKeys, [
-    () => metro.findByProps(...reactKeys, "isValidElement", "version"),
+    () => metro2.findByProps(...reactKeys, "isValidElement", "version"),
     () => globalThis.React,
     () => common.React,
-    () => metro.findByProps(...reactKeys)
+    () => metro2.findByProps(...reactKeys)
   ]);
   var ReactNative = search(captureNative, ["AppRegistry", ...nativeKeys], [
-    () => metro.findByProps("AppRegistry", ...nativeKeys),
+    () => metro2.findByProps("AppRegistry", ...nativeKeys),
     () => globalThis.ReactNative,
     () => common.ReactNative,
-    () => metro.findByProps(...nativeKeys),
+    () => metro2.findByProps(...nativeKeys),
     () => vendetta.ui?.components?.General
   ]);
   if (!React) throw new Error("POLYZILLA: m\xF3dulo React incompat\xEDvel com esta vers\xE3o do Discord.");
   if (!ReactNative) throw new Error("POLYZILLA: componentes React Native n\xE3o encontrados.");
-  var FluxDispatcher = common.FluxDispatcher;
+  var FluxDispatcher = select((value) => {
+    if (typeof value?.dispatch !== "function") return;
+    return { dispatch(action) {
+      return value.dispatch(action);
+    } };
+  }, [
+    () => metro2.findByProps("dispatch", "subscribe", "unsubscribe"),
+    () => common.FluxDispatcher,
+    () => metro2.findByProps("dispatch", "_interceptors")
+  ]);
 
-  // plugins/meu-tradutor/src/index.ts
-  var import_patcher = __toESM(require_patcher(), 1);
-  var import_toasts2 = __toESM(require_toasts(), 1);
+  // vendetta-runtime:@vendetta/patcher
+  function before(property, target, callback) {
+    const fn = vendetta.patcher?.before;
+    if (typeof fn !== "function") throw new Error("API patcher.before ausente");
+    return vendetta.patcher.before(property, target, callback);
+  }
+  __name(before, "before");
+  function instead(property, target, callback) {
+    const fn = vendetta.patcher?.instead;
+    if (typeof fn !== "function") throw new Error("API patcher.instead ausente");
+    return vendetta.patcher.instead(property, target, callback);
+  }
+  __name(instead, "instead");
+
+  // vendetta-runtime:@vendetta/ui/toasts
+  function showToast(text, asset) {
+    return vendetta.ui.toasts.showToast(text, asset);
+  }
+  __name(showToast, "showToast");
 
   // vendetta-runtime:@vendetta/storage
-  function useProxy(storage2) {
+  function useProxy(storage3) {
     const state = React.useState(0);
     const redraw = state?.[1];
     if (typeof redraw !== "function") throw new Error("POLYZILLA: useProxy n\xE3o recebeu um setter v\xE1lido.");
     React.useEffect(() => {
       const refresh = /* @__PURE__ */ __name(() => redraw((value) => value + 1), "refresh");
-      const emitter = storage2?.[Symbol.for("vendetta.storage.emitter")];
+      const emitter = storage3?.[Symbol.for("vendetta.storage.emitter")];
       if (typeof emitter?.on === "function" && typeof emitter?.off === "function") {
         emitter.on("SET", refresh);
         emitter.on("DEL", refresh);
@@ -177,17 +183,13 @@ var __plugin = (() => {
       }
       const timer = setInterval(refresh, 500);
       return () => clearInterval(timer);
-    }, [storage2]);
-    return storage2;
+    }, [storage3]);
+    return storage3;
   }
   __name(useProxy, "useProxy");
 
-  // plugins/meu-tradutor/src/Settings.tsx
-  var import_toasts = __toESM(require_toasts(), 1);
-
-  // plugins/meu-tradutor/src/state.ts
-  var import_plugin = __toESM(require_plugin(), 1);
-  var import_metro = __toESM(require_metro(), 1);
+  // vendetta-runtime:@vendetta/plugin
+  var storage = vendetta.plugin.storage;
 
   // plugins/meu-tradutor/src/translator.ts
   var DEFAULT_MODELS = {
@@ -415,34 +417,34 @@ var __plugin = (() => {
   __name(translateText, "translateText");
 
   // plugins/meu-tradutor/src/state.ts
-  var storage = import_plugin.storage;
+  var storage2 = storage;
   var stores = {};
   function initializeSettings() {
-    storage.theme ?? (storage.theme = "kaiju-dark");
-    storage.autoTranslate ?? (storage.autoTranslate = false);
-    storage.ignoreOwnMessages ?? (storage.ignoreOwnMessages = true);
-    storage.targetLang ?? (storage.targetLang = "PT-BR");
-    storage.translateOutgoing ?? (storage.translateOutgoing = false);
-    storage.outgoingLang ?? (storage.outgoingLang = "EN");
-    storage.outgoingOnlyWithPrefix ?? (storage.outgoingOnlyWithPrefix = false);
-    storage.filterMode ?? (storage.filterMode = "all");
-    storage.filterChannels ?? (storage.filterChannels = []);
-    storage.filterGuilds ?? (storage.filterGuilds = []);
-    storage.applyFilterToOutgoing ?? (storage.applyFilterToOutgoing = true);
-    storage.provider ?? (storage.provider = "gemini");
-    storage.customEndpoint ?? (storage.customEndpoint = "");
-    storage.apiKeys ?? (storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
-    storage.models ?? (storage.models = { ...DEFAULT_MODELS });
+    storage2.theme ?? (storage2.theme = "kaiju-dark");
+    storage2.autoTranslate ?? (storage2.autoTranslate = false);
+    storage2.ignoreOwnMessages ?? (storage2.ignoreOwnMessages = true);
+    storage2.targetLang ?? (storage2.targetLang = "PT-BR");
+    storage2.translateOutgoing ?? (storage2.translateOutgoing = false);
+    storage2.outgoingLang ?? (storage2.outgoingLang = "EN");
+    storage2.outgoingOnlyWithPrefix ?? (storage2.outgoingOnlyWithPrefix = false);
+    storage2.filterMode ?? (storage2.filterMode = "all");
+    storage2.filterChannels ?? (storage2.filterChannels = []);
+    storage2.filterGuilds ?? (storage2.filterGuilds = []);
+    storage2.applyFilterToOutgoing ?? (storage2.applyFilterToOutgoing = true);
+    storage2.provider ?? (storage2.provider = "gemini");
+    storage2.customEndpoint ?? (storage2.customEndpoint = "");
+    storage2.apiKeys ?? (storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
+    storage2.models ?? (storage2.models = { ...DEFAULT_MODELS });
   }
   __name(initializeSettings, "initializeSettings");
   function findStore(name, method) {
     try {
-      const named = (0, import_metro.findByStoreName)?.(name);
+      const named = findByStoreName?.(name);
       if (typeof named?.[method] === "function") return named;
     } catch {
     }
     try {
-      const matching = (0, import_metro.findByProps)(method);
+      const matching = findByProps(method);
       if (typeof matching?.[method] === "function") return matching;
     } catch {
     }
@@ -458,10 +460,10 @@ var __plugin = (() => {
   }
   __name(findStores, "findStores");
   function shouldTranslateChannel(channelId, isOutgoing = false) {
-    if (isOutgoing && !storage.applyFilterToOutgoing || storage.filterMode === "all") return true;
+    if (isOutgoing && !storage2.applyFilterToOutgoing || storage2.filterMode === "all") return true;
     const guildId = channelId ? stores.channels?.getChannel(channelId)?.guild_id : void 0;
-    const listed = channelId !== void 0 && storage.filterChannels.includes(channelId) || guildId !== void 0 && storage.filterGuilds.includes(guildId);
-    return storage.filterMode === "whitelist" ? listed : !listed;
+    const listed = channelId !== void 0 && storage2.filterChannels.includes(channelId) || guildId !== void 0 && storage2.filterGuilds.includes(guildId);
+    return storage2.filterMode === "whitelist" ? listed : !listed;
   }
   __name(shouldTranslateChannel, "shouldTranslateChannel");
 
@@ -473,7 +475,7 @@ var __plugin = (() => {
   };
   var themeNames = { "neobrutal-light": "Neobrutal Light", "kaiju-dark": "Kaiju Dark" };
   function getTheme() {
-    const colors = palettes[storage.theme] ?? palettes["kaiju-dark"];
+    const colors = palettes[storage2.theme] ?? palettes["kaiju-dark"];
     return { colors, styles: makeStyles(colors) };
   }
   __name(getTheme, "getTheme");
@@ -537,33 +539,33 @@ var __plugin = (() => {
   __name(Options, "Options");
   function Translation({ onIncomingChange, onRetranslate }) {
     const { colors, styles } = getTheme();
-    return /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(Section, { title: "Mensagens recebidas" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Tradu\xE7\xE3o autom\xE1tica", value: storage.autoTranslate, onChange: (value) => {
-      storage.autoTranslate = value;
+    return /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(Section, { title: "Mensagens recebidas" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Tradu\xE7\xE3o autom\xE1tica", value: storage2.autoTranslate, onChange: (value) => {
+      storage2.autoTranslate = value;
       onIncomingChange();
-    } }), /* @__PURE__ */ React.createElement(Toggle, { label: "Ignorar minhas pr\xF3prias mensagens", value: storage.ignoreOwnMessages, yesNo: true, onChange: (value) => {
-      storage.ignoreOwnMessages = value;
+    } }), /* @__PURE__ */ React.createElement(Toggle, { label: "Ignorar minhas pr\xF3prias mensagens", value: storage2.ignoreOwnMessages, yesNo: true, onChange: (value) => {
+      storage2.ignoreOwnMessages = value;
       onIncomingChange();
-    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma de leitura"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage.targetLang, onChange: (value) => {
-      if (value !== storage.targetLang) {
-        storage.targetLang = value;
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma de leitura"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage2.targetLang, onChange: (value) => {
+      if (value !== storage2.targetLang) {
+        storage2.targetLang = value;
         onIncomingChange();
       }
     } }), /* @__PURE__ */ React.createElement(Button, { label: "Retraduzir mensagens exibidas", onPress: () => {
       onRetranslate();
-      (0, import_toasts.showToast)(storage.autoTranslate ? "Retraduzindo mensagens exibidas." : "Cache limpo. A tradu\xE7\xE3o autom\xE1tica est\xE1 desligada.");
-    } })), /* @__PURE__ */ React.createElement(Section, { title: "Minhas mensagens (envio)" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Traduzir ao enviar", value: storage.translateOutgoing, onChange: (value) => {
-      storage.translateOutgoing = value;
+      showToast(storage2.autoTranslate ? "Retraduzindo mensagens exibidas." : "Cache limpo. A tradu\xE7\xE3o autom\xE1tica est\xE1 desligada.");
+    } })), /* @__PURE__ */ React.createElement(Section, { title: "Minhas mensagens (envio)" }, /* @__PURE__ */ React.createElement(Toggle, { label: "Traduzir ao enviar", value: storage2.translateOutgoing, onChange: (value) => {
+      storage2.translateOutgoing = value;
     } }), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modo de envio"), /* @__PURE__ */ React.createElement(
       Options,
       {
         labels: { auto: "Traduzir tudo automaticamente", prefix: "S\xF3 com prefixo (!en / !es / !pt)" },
-        value: storage.outgoingOnlyWithPrefix ? "prefix" : "auto",
+        value: storage2.outgoingOnlyWithPrefix ? "prefix" : "auto",
         onChange: (value) => {
-          storage.outgoingOnlyWithPrefix = value === "prefix";
+          storage2.outgoingOnlyWithPrefix = value === "prefix";
         }
       }
-    ), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma padr\xE3o de envio"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage.outgoingLang, onChange: (value) => {
-      storage.outgoingLang = value;
+    ), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma padr\xE3o de envio"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage2.outgoingLang, onChange: (value) => {
+      storage2.outgoingLang = value;
     } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "!en ingl\xEAs \xB7 !es espanhol \xB7 !pt portugu\xEAs (BR) \xB7 !raw texto original. Os atalhos funcionam mesmo com a tradu\xE7\xE3o autom\xE1tica desligada.")));
   }
   __name(Translation, "Translation");
@@ -599,28 +601,28 @@ var __plugin = (() => {
     const save = /* @__PURE__ */ __name((field, input, manually = false) => {
       const id = input?.trim();
       if (!id || !/^\d{1,20}$/.test(id) || /^0+$/.test(id)) {
-        (0, import_toasts.showToast)(manually ? "Informe um ID num\xE9rico v\xE1lido." : "Abra um canal ou servidor e tente novamente.");
+        showToast(manually ? "Informe um ID num\xE9rico v\xE1lido." : "Abra um canal ou servidor e tente novamente.");
         return;
       }
-      if (storage[field].includes(id)) {
-        (0, import_toasts.showToast)("Esse ID j\xE1 est\xE1 salvo.");
+      if (storage2[field].includes(id)) {
+        showToast("Esse ID j\xE1 est\xE1 salvo.");
         return;
       }
-      storage[field] = [...storage[field], id];
+      storage2[field] = [...storage2[field], id];
       if (manually) setManual("");
       onIncomingChange();
     }, "save");
     const remove = /* @__PURE__ */ __name((field, id) => {
-      storage[field] = storage[field].filter((value) => value !== id);
+      storage2[field] = storage2[field].filter((value) => value !== id);
       onIncomingChange();
     }, "remove");
-    return /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(Section, { title: "Onde traduzir" }, /* @__PURE__ */ React.createElement(Options, { labels: modes, value: storage.filterMode, onChange: (value) => {
-      if (value !== storage.filterMode) {
-        storage.filterMode = value;
+    return /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(Section, { title: "Onde traduzir" }, /* @__PURE__ */ React.createElement(Options, { labels: modes, value: storage2.filterMode, onChange: (value) => {
+      if (value !== storage2.filterMode) {
+        storage2.filterMode = value;
         onIncomingChange();
       }
-    } }), /* @__PURE__ */ React.createElement(Toggle, { label: "Aplicar filtro tamb\xE9m no envio", value: storage.applyFilterToOutgoing, yesNo: true, onChange: (value) => {
-      storage.applyFilterToOutgoing = value;
+    } }), /* @__PURE__ */ React.createElement(Toggle, { label: "Aplicar filtro tamb\xE9m no envio", value: storage2.applyFilterToOutgoing, yesNo: true, onChange: (value) => {
+      storage2.applyFilterToOutgoing = value;
     } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "O filtro de envio vale para a tradu\xE7\xE3o autom\xE1tica. Os atalhos continuam dispon\xEDveis em qualquer canal.")), /* @__PURE__ */ React.createElement(Section, { title: "Adicionar \xE0 lista" }, /* @__PURE__ */ React.createElement(View, { style: styles.options }, /* @__PURE__ */ React.createElement(Button, { label: "+ Canal atual", onPress: () => save("filterChannels", stores.selectedChannel?.getChannelId()) }), /* @__PURE__ */ React.createElement(Button, { label: "+ Servidor atual", onPress: () => save("filterGuilds", stores.selectedGuild?.getGuildId()) })), /* @__PURE__ */ React.createElement(
       TextInput,
       {
@@ -638,7 +640,7 @@ var __plugin = (() => {
       FilterList,
       {
         title: "Canais salvos",
-        ids: storage.filterChannels,
+        ids: storage2.filterChannels,
         resolveName: (id) => stores.channels?.getChannel(id)?.name,
         remove: (id) => remove("filterChannels", id)
       }
@@ -646,7 +648,7 @@ var __plugin = (() => {
       FilterList,
       {
         title: "Servidores salvos",
-        ids: storage.filterGuilds,
+        ids: storage2.filterGuilds,
         resolveName: (id) => stores.guilds?.getGuild(id)?.name,
         remove: (id) => remove("filterGuilds", id)
       }
@@ -685,27 +687,27 @@ var __plugin = (() => {
     onIncomingChange
   }) {
     const { colors, styles } = getTheme();
-    const apiKeyState = React.useState(storage.apiKeys[provider] ?? "");
+    const apiKeyState = React.useState(storage2.apiKeys[provider] ?? "");
     const apiKey = apiKeyState[0];
     const setApiKey = apiKeyState[1];
-    const savedModel = provider === "deepl" ? "" : storage.models[provider] ?? DEFAULT_MODELS[provider];
+    const savedModel = provider === "deepl" ? "" : storage2.models[provider] ?? DEFAULT_MODELS[provider];
     const modelState = React.useState(savedModel);
     const model = modelState[0];
     const setModel = modelState[1];
-    const endpointState = React.useState(storage.customEndpoint);
+    const endpointState = React.useState(storage2.customEndpoint);
     const endpoint = endpointState[0];
     const setEndpoint = endpointState[1];
     const save = /* @__PURE__ */ __name(() => {
       const nextKey = apiKey.trim();
       const nextModel = model.trim();
       const nextEndpoint = endpoint.trim();
-      if (nextKey !== (storage.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage.customEndpoint) {
-        storage.apiKeys[provider] = nextKey;
-        if (provider !== "deepl") storage.models[provider] = nextModel;
-        if (provider === "custom") storage.customEndpoint = nextEndpoint;
+      if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint) {
+        storage2.apiKeys[provider] = nextKey;
+        if (provider !== "deepl") storage2.models[provider] = nextModel;
+        if (provider === "custom") storage2.customEndpoint = nextEndpoint;
         onIncomingChange(true);
       }
-      (0, import_toasts.showToast)("Configura\xE7\xE3o da API salva.");
+      showToast("Configura\xE7\xE3o da API salva.");
     }, "save");
     return /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(
       ApiInput,
@@ -738,10 +740,10 @@ var __plugin = (() => {
   __name(ProviderFields, "ProviderFields");
   function Api({ onIncomingChange }) {
     const { colors, styles } = getTheme();
-    const provider = storage.provider;
+    const provider = storage2.provider;
     return /* @__PURE__ */ React.createElement(Section, { title: "Provedor de tradu\xE7\xE3o" }, /* @__PURE__ */ React.createElement(Options, { labels: PROVIDER_NAMES, value: provider, onChange: (value) => {
-      if (value !== storage.provider) {
-        storage.provider = value;
+      if (value !== storage2.provider) {
+        storage2.provider = value;
         onIncomingChange();
       }
     } }), /* @__PURE__ */ React.createElement(ProviderFields, { key: provider, provider, onIncomingChange }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "O provedor escolhido recebe o texto a traduzir e pode cobrar pelas chamadas."));
@@ -770,15 +772,15 @@ var __plugin = (() => {
   function Settings(props) {
     const { colors, styles } = getTheme();
     try {
-      useProxy(storage);
+      useProxy(storage2);
     } catch (error) {
       throw new Error("POLYZILLA Settings.useProxy: " + String(error));
     }
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage.theme ?? "kaiju-dark", onChange: (value) => {
-      storage.theme = value;
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+      storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
       {
@@ -849,9 +851,10 @@ var __plugin = (() => {
   var outgoingController;
   var unpatchRowManager;
   var unpatchSendMessage;
+  var hookRetry;
   function notifyUser(message) {
     try {
-      (0, import_toasts2.showToast)(message);
+      showToast(message);
     } catch {
     }
   }
@@ -877,15 +880,15 @@ var __plugin = (() => {
   }
   __name(notifyStats, "notifyStats");
   function translate(text, targetLang, signal) {
-    const provider = storage.provider;
+    const provider = storage2.provider;
     const sessionStats = stats;
     let started = false;
     return translateText(text, {
       provider,
       targetLang,
-      apiKey: storage.apiKeys[provider] ?? "",
-      model: provider === "deepl" ? void 0 : storage.models[provider],
-      customEndpoint: storage.customEndpoint,
+      apiKey: storage2.apiKeys[provider] ?? "",
+      model: provider === "deepl" ? void 0 : storage2.models[provider],
+      customEndpoint: storage2.customEndpoint,
       signal,
       onRequest: /* @__PURE__ */ __name(() => {
         started = true;
@@ -903,7 +906,7 @@ var __plugin = (() => {
   }
   __name(translate, "translate");
   function cacheKey(id) {
-    return id + ":" + storage.provider + ":" + storage.targetLang;
+    return id + ":" + storage2.provider + ":" + storage2.targetLang;
   }
   __name(cacheKey, "cacheKey");
   function removeCached(key) {
@@ -953,9 +956,9 @@ var __plugin = (() => {
   }
   __name(scheduleRender, "scheduleRender");
   function canTranslateIncoming(message) {
-    if (!storage.autoTranslate || !shouldTranslateChannel(message.channelId)) return false;
+    if (!storage2.autoTranslate || !shouldTranslateChannel(message.channelId)) return false;
     const userId = stores.users?.getCurrentUser()?.id;
-    if (storage.ignoreOwnMessages && userId && message.message.author?.id === userId) return false;
+    if (storage2.ignoreOwnMessages && userId && message.message.author?.id === userId) return false;
     return hasTranslatableText(message.source);
   }
   __name(canTranslateIncoming, "canTranslateIncoming");
@@ -967,7 +970,7 @@ var __plugin = (() => {
   function pumpQueue() {
     const controller = incomingController;
     const session = outgoingController;
-    if (!controller || !session || !storage.autoTranslate) return;
+    if (!controller || !session || !storage2.autoTranslate) return;
     for (const id of queue) {
       if (inFlight.size >= MAX_INFLIGHT) break;
       const key = cacheKey(id);
@@ -978,7 +981,7 @@ var __plugin = (() => {
       const source = observed.source;
       if (getCached(key, source) !== void 0 || failed.get(key) === source) continue;
       inFlight.add(key);
-      void translate(source, storage.targetLang, controller.signal).then((translated) => {
+      void translate(source, storage2.targetLang, controller.signal).then((translated) => {
         const current = visibleMessages.get(id);
         const currentOriginal = stores.messages?.getMessage(observed.channelId, id);
         if (controller.signal.aborted || !current || current.source !== source || currentOriginal && currentOriginal.content !== source || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
@@ -1003,7 +1006,7 @@ var __plugin = (() => {
   function interceptRow(args) {
     const row = args[0];
     const rowMessage = row?.message;
-    if (row?.rowType !== 1 || !rowMessage?.id || !rowMessage.content) return;
+    if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
     const channelId = rowMessage.channel_id ?? row.channelId;
     if (!channelId) return;
     const id = rowMessage.id;
@@ -1079,11 +1082,11 @@ var __plugin = (() => {
     const source = prefix?.[2] ?? content;
     const send = /* @__PURE__ */ __name((text) => text === content ? original(...args) : original(channelId, { ...message, content: text }, ...options), "send");
     if (shortcut === "raw") return send(source);
-    if (!shortcut && (!storage.translateOutgoing || storage.outgoingOnlyWithPrefix || !shouldTranslateChannel(channelId, true))) return original(...args);
+    if (!shortcut && (!storage2.translateOutgoing || storage2.outgoingOnlyWithPrefix || !shouldTranslateChannel(channelId, true))) return original(...args);
     if (!hasTranslatableText(source)) return send(source);
     const controller = outgoingController;
     if (!controller) return send(source);
-    const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage.outgoingLang;
+    const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage2.outgoingLang;
     return translate(source, target, controller.signal).catch(() => {
       if (!controller.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
       return source;
@@ -1097,25 +1100,81 @@ var __plugin = (() => {
     incomingController = new AbortController();
     outgoingController = new AbortController();
     findStores();
-    try {
-      const rowManager = (0, import_metro2.findByName)("RowManager");
-      if (typeof rowManager?.prototype?.generate !== "function" || typeof FluxDispatcher?.dispatch !== "function") {
-        throw new Error();
-      }
-      unpatchRowManager = (0, import_patcher.before)("generate", rowManager.prototype, interceptRow);
-    } catch {
-      notifyUser("POLYZILLA: tradu\xE7\xE3o recebida indispon\xEDvel nesta vers\xE3o do Discord.");
-    }
-    try {
-      const actions = (0, import_metro2.findByProps)("sendMessage", "receiveMessage");
-      if (typeof actions?.sendMessage !== "function") throw new Error();
-      unpatchSendMessage = (0, import_patcher.instead)("sendMessage", actions, interceptSend);
-    } catch {
-      notifyUser("POLYZILLA: tradu\xE7\xE3o no envio indispon\xEDvel nesta vers\xE3o do Discord.");
-    }
+    installHooks(0);
   }
   __name(onLoad, "onLoad");
+  function describeError(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+  __name(describeError, "describeError");
+  function rowPrototype(candidate) {
+    const value = candidate;
+    if (typeof value?.prototype?.generate === "function") return value.prototype;
+    if (typeof value?.default?.prototype?.generate === "function") return value.default.prototype;
+  }
+  __name(rowPrototype, "rowPrototype");
+  function outgoingActions() {
+    const matches = [
+      () => findByProps("sendMessage", "receiveMessage"),
+      () => findByProps("sendMessage", "editMessage"),
+      () => findByProps("sendMessage", "deleteMessage"),
+      () => findByProps("sendMessage", "sendBotMessage")
+    ];
+    for (const resolve of matches) {
+      try {
+        const value = resolve();
+        if (typeof value?.sendMessage === "function") return value;
+      } catch {
+      }
+    }
+    try {
+      const all = findByPropsAll("sendMessage");
+      const actions = all.filter((value) => typeof value?.sendMessage === "function");
+      if (actions.length === 1) return actions[0];
+    } catch {
+    }
+  }
+  __name(outgoingActions, "outgoingActions");
+  function installHooks(attempt) {
+    if (!outgoingController) return;
+    let incomingError = "", outgoingError = "";
+    if (!unpatchRowManager) {
+      try {
+        let prototype = rowPrototype(findByName("RowManager"));
+        if (!prototype) prototype = rowPrototype(findByName("RowManager", false));
+        if (!prototype) prototype = rowPrototype(find((value) => Boolean(rowPrototype(value))));
+        if (!prototype) throw new Error("RowManager.generate n\xE3o localizado");
+        if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch n\xE3o localizado");
+        const undo = before("generate", prototype, interceptRow);
+        if (typeof undo !== "function") throw new Error("patcher.before n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
+        unpatchRowManager = undo;
+      } catch (error) {
+        incomingError = describeError(error);
+      }
+    }
+    if (!unpatchSendMessage) {
+      try {
+        const actions = outgoingActions();
+        if (!actions) throw new Error("MessageActions.sendMessage n\xE3o localizado");
+        const undo = instead("sendMessage", actions, interceptSend);
+        if (typeof undo !== "function") throw new Error("patcher.instead n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
+        unpatchSendMessage = undo;
+      } catch (error) {
+        outgoingError = describeError(error);
+      }
+    }
+    if (unpatchRowManager && unpatchSendMessage) return;
+    if (attempt < 3) {
+      hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);
+      return;
+    }
+    if (!unpatchRowManager) notifyUser("POLYZILLA recebimento: " + incomingError);
+    if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
+  }
+  __name(installHooks, "installHooks");
   function onUnload() {
+    if (hookRetry !== void 0) clearTimeout(hookRetry);
+    hookRetry = void 0;
     unpatchRowManager?.();
     unpatchSendMessage?.();
     unpatchRowManager = void 0;

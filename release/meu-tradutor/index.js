@@ -146,12 +146,6 @@ var __plugin = (() => {
   ]);
 
   // vendetta-runtime:@vendetta/patcher
-  function before(property, target, callback) {
-    const fn = vendetta.patcher?.before;
-    if (typeof fn !== "function") throw new Error("API patcher.before ausente");
-    return vendetta.patcher.before(property, target, callback);
-  }
-  __name(before, "before");
   function instead(property, target, callback) {
     const fn = vendetta.patcher?.instead;
     if (typeof fn !== "function") throw new Error("API patcher.instead ausente");
@@ -379,14 +373,14 @@ var __plugin = (() => {
       const instructions = systemPrompt(targetLang);
       if (provider === "gemini") {
         const modelName = encodeURIComponent(model.replace(/^models\//, ""));
-        const response = await postJson("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent?key=" + encodeURIComponent(apiKey), {}, {
+        const response = await postJson("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent", { "x-goog-api-key": apiKey }, {
           systemInstruction: { parts: [{ text: instructions }] },
           contents: [{ role: "user", parts: [{ text: protectedText.text }] }],
-          generationConfig: { temperature: 0.2 }
+          generationConfig: {}
         }, config);
         const candidate = response?.candidates?.[0];
         if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-          throw new Error("O Gemini n\xE3o concluiu a tradu\xE7\xE3o.");
+          throw new Error("O Gemini n\xE3o concluiu a tradu\xE7\xE3o (" + candidate.finishReason + ").");
         }
         translated = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text ?? "").join("");
       } else {
@@ -970,6 +964,8 @@ var __plugin = (() => {
   var unpatchRowManager;
   var unpatchSendMessage;
   var hookRetry;
+  var scanTimer;
+  var appliedLocally = /* @__PURE__ */ new Map();
   function notifyUser(message) {
     try {
       showToast(message);
@@ -1053,25 +1049,66 @@ var __plugin = (() => {
   __name(getCached, "getCached");
   function dispatchMessage(original) {
     try {
-      const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: original });
-      void Promise.resolve(dispatched).catch(() => {
+      const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
+      void Promise.resolve(dispatched).catch((error) => {
+        stats.lastError = "Atualiza\xE7\xE3o local: " + describeError(error);
+        notifyStats();
       });
     } catch {
     }
   }
   __name(dispatchMessage, "dispatchMessage");
+  function readOriginal(channelId, id, fallback) {
+    try {
+      const current = stores.messages?.getMessage(channelId, id) ?? fallback;
+      const applied = appliedLocally.get(id);
+      if (applied && current?.content === applied.translated) return applied.original;
+      if (applied && current && current.content !== applied.original.content) appliedLocally.delete(id);
+      return current;
+    } catch {
+      return fallback;
+    }
+  }
+  __name(readOriginal, "readOriginal");
+  function restoreLocal() {
+    for (const [id, applied] of appliedLocally) {
+      try {
+        const current = stores.messages?.getMessage(applied.channelId, id);
+        if (current?.content === applied.translated) dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+      } catch {
+      }
+    }
+    appliedLocally.clear();
+  }
+  __name(restoreLocal, "restoreLocal");
   function scheduleRender(id) {
     pendingRenders.add(id);
     if (renderTimer !== void 0) return;
     renderTimer = setTimeout(() => {
       renderTimer = void 0;
-      const refresh = [...pendingRenders];
+      const refresh = Array.from(pendingRenders);
       pendingRenders.clear();
       for (const messageId of refresh) {
         const observed = visibleMessages.get(messageId);
-        if (!observed) continue;
-        const original = stores.messages ? stores.messages.getMessage(observed.channelId, messageId) : observed.message;
-        if (original) dispatchMessage(original);
+        if (!observed || !isSelected(observed.channelId)) continue;
+        const original = readOriginal(observed.channelId, messageId, observed.message);
+        if (!original) continue;
+        const cached = getCached(cacheKey(messageId), observed.source);
+        if (cached !== void 0 && cached !== original.content && canTranslateIncoming(observed)) {
+          const current = stores.messages?.getMessage(observed.channelId, messageId);
+          if (current && current.content === original.content) {
+            if (appliedLocally.size < MAX_CACHED || appliedLocally.has(messageId)) {
+              appliedLocally.set(messageId, { original, translated: cached, channelId: observed.channelId });
+              dispatchMessage({ ...current, content: cached, channel_id: observed.channelId });
+            }
+          } else if (!current) {
+            dispatchMessage(original);
+          }
+        } else dispatchMessage(original);
+        try {
+          stores.messages?.emitChange?.();
+        } catch {
+        }
       }
     }, 0);
   }
@@ -1104,7 +1141,7 @@ var __plugin = (() => {
       inFlight.add(key);
       void translate(source, storage2.targetLang, controller.signal).then((translated) => {
         const current = visibleMessages.get(id);
-        const currentOriginal = stores.messages?.getMessage(observed.channelId, id);
+        const currentOriginal = readOriginal(observed.channelId, id);
         if (controller.signal.aborted || !current || current.source !== source || currentOriginal && currentOriginal.content !== source || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
         cacheTranslation(key, source, translated);
         if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
@@ -1124,25 +1161,15 @@ var __plugin = (() => {
     }
   }
   __name(pumpQueue, "pumpQueue");
-  function interceptRow(args) {
-    stats.observed++;
-    notifyStats();
-    const row = args[0];
-    const rowMessage = row?.message;
-    if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
-    const channelId = rowMessage.channel_id ?? row.channelId;
-    if (!channelId) return;
-    const id = rowMessage.id;
-    const message = stores.messages?.getMessage(channelId, id) ?? rowMessage;
-    if (typeof message.content !== "string") return;
+  function observeMessage(message, channelId) {
+    if (!message?.id || typeof message.content !== "string" || !message.content || !isSelected(channelId)) return;
+    const original = readOriginal(channelId, message.id, message) ?? message;
+    if (typeof original.content !== "string") return;
+    const id = original.id;
     const previous = visibleMessages.get(id);
-    const observed = {
-      channelId,
-      message,
-      source: message.content,
-      translated: false
-    };
-    if (previous) visibleMessages.delete(id);
+    if (!previous || previous.source !== original.content) stats.observed++;
+    const observed = { channelId, message: original, source: original.content, translated: previous?.source === original.content && !!previous.translated };
+    visibleMessages.delete(id);
     visibleMessages.set(id, observed);
     if (visibleMessages.size > MAX_OBSERVED) {
       const oldest = visibleMessages.keys().next().value;
@@ -1151,29 +1178,69 @@ var __plugin = (() => {
         queue.delete(oldest);
       }
     }
-    if (!canTranslateIncoming(observed)) return;
-    const key = cacheKey(id);
-    const cached = getCached(key, observed.source);
-    if (cached !== void 0) {
-      stats.cacheHits++;
-      notifyStats();
-      if (cached !== observed.source) {
-        args[0] = { ...row, message: { ...message, content: cached } };
-        observed.translated = true;
-        stats.rendered++;
-        notifyStats();
+    if (canTranslateIncoming(observed)) {
+      const key = cacheKey(id);
+      if (getCached(key, observed.source) === void 0 && !inFlight.has(key) && failed.get(key) !== observed.source) {
+        queue.add(id);
+        pumpQueue();
       }
-      return;
     }
-    if ((!inFlight.has(key) || previous?.source !== observed.source) && failed.get(key) !== observed.source) {
-      queue.add(id);
-      pumpQueue();
+    notifyStats();
+    return observed;
+  }
+  __name(observeMessage, "observeMessage");
+  function interceptRow(args, original) {
+    try {
+      const row = args[0];
+      const message = row?.message;
+      const channelId = message?.channel_id ?? message?.channelId ?? row?.channelId;
+      if (row && message && channelId) {
+        const observed = observeMessage(message, channelId);
+        if (observed && canTranslateIncoming(observed)) {
+          const cached = getCached(cacheKey(message.id), observed.source);
+          if (cached !== void 0 && cached !== observed.source) {
+            const copy = Object.assign(Object.create(Object.getPrototypeOf(message)), message, { content: cached });
+            args[0] = Object.assign(Object.create(Object.getPrototypeOf(row)), row, { message: copy });
+            observed.translated = true;
+            stats.cacheHits++;
+            stats.rendered++;
+            notifyStats();
+          }
+        }
+      }
+    } catch (error) {
+      stats.lastError = "Renderiza\xE7\xE3o: " + describeError(error);
+      notifyStats();
     }
+    return original(...args);
   }
   __name(interceptRow, "interceptRow");
+  function scanSelectedChannel() {
+    if (!outgoingController || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
+    try {
+      const channelId = stores.selectedChannel?.getChannelId();
+      if (!channelId || !shouldTranslateChannel(channelId)) return;
+      const raw = stores.messages?.getMessages?.(channelId);
+      if (!raw) return;
+      const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : raw._array ?? raw.messages;
+      if (!Array.isArray(list)) return;
+      const recent = list.slice(-30);
+      for (const message of recent) {
+        if (message && typeof message.id === "string" && (message.channel_id ?? message.channelId ?? channelId) === channelId)
+          observeMessage(message, channelId);
+      }
+      if (!unpatchRowManager) stats.incomingStatus = "Captura por MessageStore";
+      notifyStats();
+    } catch (error) {
+      stats.lastError = "Hist\xF3rico local: " + describeError(error);
+      notifyStats();
+    }
+  }
+  __name(scanSelectedChannel, "scanSelectedChannel");
   function refreshIncoming(resetCache = false) {
     if (!incomingController) return;
     incomingController.abort();
+    restoreLocal();
     incomingController = new AbortController();
     queue.clear();
     failed.clear();
@@ -1189,6 +1256,7 @@ var __plugin = (() => {
       if (cached === void 0) queue.add(id);
       else if (cached !== observed.source) scheduleRender(id);
     }
+    scanSelectedChannel();
     pumpQueue();
   }
   __name(refreshIncoming, "refreshIncoming");
@@ -1226,6 +1294,8 @@ var __plugin = (() => {
     outgoingController = new AbortController();
     findStores();
     installHooks(0);
+    scanTimer = setInterval(scanSelectedChannel, 1200);
+    scanSelectedChannel();
   }
   __name(onLoad, "onLoad");
   function describeError(error) {
@@ -1270,8 +1340,8 @@ var __plugin = (() => {
         if (!prototype) prototype = rowPrototype(find((value) => Boolean(rowPrototype(value))));
         if (!prototype) throw new Error("RowManager.generate n\xE3o localizado");
         if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch n\xE3o localizado");
-        const undo = before("generate", prototype, interceptRow);
-        if (typeof undo !== "function") throw new Error("patcher.before n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
+        const undo = instead("generate", prototype, interceptRow);
+        if (typeof undo !== "function") throw new Error("patcher.instead n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
         unpatchRowManager = undo;
         stats.incomingStatus = "Intercepta\xE7\xE3o instalada";
       } catch (error) {
@@ -1298,11 +1368,15 @@ var __plugin = (() => {
       hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);
       return;
     }
-    if (!unpatchRowManager) notifyUser("POLYZILLA recebimento: " + incomingError);
+    if (!unpatchRowManager && typeof stores.messages?.getMessages !== "function") notifyUser("POLYZILLA recebimento: " + incomingError);
+    else if (!unpatchRowManager) stats.incomingStatus = "Captura alternativa por MessageStore";
     if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
   }
   __name(installHooks, "installHooks");
   function onUnload() {
+    if (scanTimer !== void 0) clearInterval(scanTimer);
+    scanTimer = void 0;
+    restoreLocal();
     if (hookRetry !== void 0) clearTimeout(hookRetry);
     hookRetry = void 0;
     unpatchRowManager?.();
@@ -1320,7 +1394,7 @@ var __plugin = (() => {
     const originals = [];
     for (const [id, observed] of visibleMessages) {
       if (!observed.translated) continue;
-      const original = stores.messages ? stores.messages.getMessage(observed.channelId, id) : observed.message;
+      const original = readOriginal(observed.channelId, id, observed.message);
       if (original) originals.push(original);
     }
     visibleMessages.clear();

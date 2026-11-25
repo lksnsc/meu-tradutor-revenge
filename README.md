@@ -6,13 +6,13 @@ O plugin usa o carregador compatível com Vendetta, que fornece a API global ven
 
 ## Publicar no GitHub Pages
 
-1. Crie um repositório no GitHub chamado meu-tradutor-revenge, com GitHub Pages disponível para a visibilidade e o plano escolhidos.
+1. Crie um repositório no GitHub chamado polyzilla, com GitHub Pages disponível para a visibilidade e o plano escolhidos.
 2. Envie os arquivos deste projeto à branch main. Preserve a pasta oculta .github, onde fica o workflow.
 3. No GitHub, abra **Settings → Pages → Build and deployment** e selecione **GitHub Actions** em **Source**.
 4. Em **Actions → Publicar plugin no GitHub Pages**, execute **Run workflow** se o primeiro push tiver ocorrido antes de configurar o Pages. Depois, cada push em main aciona o deploy.
 5. Abra a página publicada e toque em **Copiar URL**. Em um repositório de projeto com o nome sugerido, o endereço do plugin terá este formato.
 
-    https://SEU-USUARIO.github.io/meu-tradutor-revenge/meu-tradutor/
+    https://lksnsc.github.io/polyzilla/meu-tradutor/
 
 O workflow gera e publica a pasta dist. A página também funciona na raiz de um domínio personalizado. O carregador busca manifest.json e index.js no diretório meu-tradutor/.
 

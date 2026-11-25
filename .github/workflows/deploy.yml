@@ -34,11 +34,12 @@ jobs:
         run: |
           mkdir -p release/meu-tradutor
           cp dist/meu-tradutor/index.js dist/meu-tradutor/manifest.json release/meu-tradutor/
+          cp dist/index.js dist/manifest.json release/
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add release/meu-tradutor
+          git add release
           if ! git diff --cached --quiet; then
-            git commit -m 'Publicar bundle compilado do Meu Tradutor'
+            git commit -m 'Publicar bundle compilado do POLYZILLA'
             git push origin HEAD:main
           fi
       - uses: actions/configure-pages@v5

@@ -12,9 +12,11 @@ O plugin usa o carregador compatível com Vendetta, que fornece a API global ven
 4. Em **Actions → Publicar plugin no GitHub Pages**, execute **Run workflow** se o primeiro push tiver ocorrido antes de configurar o Pages. Depois, cada push em main aciona o deploy.
 5. Abra a página publicada e toque em **Copiar URL**. Em um repositório de projeto com o nome sugerido, o endereço do plugin terá este formato.
 
-    https://lksnsc.github.io/polyzilla/meu-tradutor/
+    https://lksnsc.github.io/polyzilla/
 
-O workflow gera e publica a pasta dist. A página também funciona na raiz de um domínio personalizado. O carregador busca manifest.json e index.js no diretório meu-tradutor/.
+O workflow gera e publica a pasta dist. A página também funciona na raiz de um domínio personalizado. O carregador busca manifest.json e index.js na raiz do site. O caminho anterior é mantido como alias para não interromper atualizações de instalações existentes.
+
+Link alternativo: https://raw.githubusercontent.com/lksnsc/polyzilla/main/release/
 
 ## Instalar e configurar
 

@@ -152,6 +152,8 @@ manifest.hash = createHash("sha256").update(await readFile(bundle)).digest("hex"
 await Promise.all([
   writeFile(join(output, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n"),
   writeFile(join(dist, "index.html"), installPage()),
+  writeFile(join(dist, "index.js"), code),
+  writeFile(join(dist, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n"),
 ]);
 
 function installPage() {
@@ -184,7 +186,7 @@ function installPage() {
     '</main>',
     '<script>',
     '  const directory = location.pathname.replace(/\\/index\\.html$/i, "/").replace(/\\/?$/, "/");',
-    '  const url = location.origin + directory + "' + slug + '/";',
+    '  const url = location.origin + directory;',
     '  const field = document.getElementById("plugin");',
     '  const status = document.getElementById("status");',
     '  field.value = url;',

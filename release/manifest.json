@@ -1,0 +1,15 @@
+{
+  "name": "POLYZILLA",
+  "description": "Monstro poliglota: tradução de mensagens em tempo real no Discord.",
+  "authors": [
+    {
+      "name": "Meu Tradutor",
+      "id": "0"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "GlobeIcon"
+  },
+  "hash": "738d977be7ce965a07992edb53c6659f29c1288168a738672c770d3bbe1bee37"
+}

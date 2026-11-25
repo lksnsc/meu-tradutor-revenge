@@ -481,6 +481,18 @@ var __plugin = (() => {
         const source = config.sourceLang || "EN";
         if (!codes[source] || !codes[targetLang]) throw new Error("Idioma de origem ou destino inv\xE1lido.");
         if (source === targetLang) return Promise.resolve(text);
+        if (/[\r\n]/.test(text) && !/\x60{3,}/.test(text)) {
+          const parts = text.split(/(\r\n|\n|\r)/);
+          let chain = Promise.resolve("");
+          for (const part of parts) {
+            chain = chain.then((output) => {
+              if (config.signal?.aborted) throw new TranslationRequestError("Tradu\xE7\xE3o cancelada.");
+              if (!hasTranslatableText(part)) return output + part;
+              return translateText(part, config).then((value) => output + value);
+            });
+          }
+          return chain;
+        }
         return postJson(
           "https://api.cloudflare.com/client/v4/accounts/" + account + "/ai/run/" + DEFAULT_MODELS.cloudflare,
           { Authorization: "Bearer " + apiKey },
@@ -732,7 +744,7 @@ var __plugin = (() => {
       }
     ), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma padr\xE3o de envio"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage2.outgoingLang, onChange: (value) => {
       storage2.outgoingLang = value;
-    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "!en ingl\xEAs \xB7 !es espanhol \xB7 !pt portugu\xEAs (BR) \xB7 !raw texto original. Os atalhos funcionam mesmo com a tradu\xE7\xE3o autom\xE1tica desligada.")));
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "!en ingl\xEAs \xB7 !es espanhol \xB7 !pt portugu\xEAs (BR) \xB7 !raw texto original. Os atalhos funcionam mesmo com a tradu\xE7\xE3o autom\xE1tica desligada e respeitam os filtros de envio. Digite o comando no in\xEDcio da mensagem. Para enviar sem comando, ligue Traduzir ao enviar e selecione o modo autom\xE1tico.")));
   }
   __name(Translation, "Translation");
   function FilterList({
@@ -1197,7 +1209,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R30"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R31"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1698,11 +1710,15 @@ var __plugin = (() => {
     if (typeof content !== "string" || !cleanString(content) || cleanString(content).startsWith("/")) {
       return original(...args);
     }
-    const prefix = /^!(raw|en|es|pt)[ \t]+([\s\S]*\S[\s\S]*)$/i.exec(content);
+    const prefix = /^\s*!(raw|en|es|pt)(?:[ \t]+|[ \t]*\r?\n)([\s\S]*\S[\s\S]*)$/i.exec(content);
     const shortcut = prefix?.[1].toLowerCase();
     const source = prefix?.[2] ?? content;
     const send = /* @__PURE__ */ __name((text) => text === content ? original(...args) : original(channelId, { ...message, content: text }, ...options), "send");
     if (shortcut === "raw") return send(source);
+    if (shortcut && !shouldTranslateChannel(channelId, true)) {
+      notifyUser("Canal bloqueado pelos filtros de envio; texto original mantido.");
+      return send(source);
+    }
     if (!shortcut && (!storage2.translateOutgoing || storage2.outgoingOnlyWithPrefix || !shouldTranslateChannel(channelId, true))) return original(...args);
     if (!hasTranslatableText(source)) return send(source);
     const controller = outgoingController;

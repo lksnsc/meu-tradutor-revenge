@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R30"));
+assert.ok(code.includes("R31"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -78,6 +78,10 @@ globalThis.fetch=async(url,init)=>{
   if (url === "https://api.cloudflare.com/client/v4/accounts/" + "a".repeat(32) + "/ai/run/@cf/meta/m2m100-1.2b") {
     const body=JSON.parse(init.body);
     assert.equal(init.headers.Authorization,"Bearer synthetic-cloudflare");
+    if (body.source_lang==="pt" && body.target_lang==="en") {
+      assert.equal(body.text,"Pronto.ZXQDISCORD0QXZEm tempo real.");
+      return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:"Ready.ZXQDISCORD0QXZIn real time."},errors:[]})};
+    }
     assert.equal(body.source_lang,"en"); assert.equal(body.target_lang,"pt");
     assert.equal(body.text,"Good morning, how are you?");
     return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:"Bom dia, como você está?"},errors:[]})};
@@ -196,6 +200,11 @@ try {
   assert.ok(hasText("HTTP 200"));
   await act(async()=>press("Salvar API"));
   assert.equal(storage.cloudflareAccountId,"a".repeat(32));
+  assert.equal(await actions.sendMessage("1",{content:"[TEST]\n\n!en Pronto.\n\nEm tempo real."}),"[TEST]\n\nReady.\n\nIn real time.");
+  assert.equal(sends.at(-1).content,"[TEST]\n\nReady.\n\nIn real time.");
+  assert.equal(actions.sendMessage("1",{content:"[TEST]\n\n!raw Olá"}),"[TEST]\n\nOlá");
+  assert.equal(actions.sendMessage("2",{content:"[TEST]\n\n!en Olá"}),"[TEST]\n\nOlá");
+  assert.equal(actions.sendMessage("1",{content:"Texto normal\n!en Olá"}),"Texto normal\n!en Olá");
   await act(async()=>press("Estatísticas"));
   assert.ok(settings.root.findAllByType("View").some(x=>x.props.style?.flexDirection==="column" && x.props.style?.alignItems==="stretch"));
   assert.ok(hasText("Provedor / modelo salvo")); 

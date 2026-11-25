@@ -133,7 +133,7 @@ function Translation({ onIncomingChange, onRetranslate }: SettingsProps): JSX.El
         <Options labels={LANG_NAMES} value={storage.outgoingLang} onChange={(value: LangCode) => {
           storage.outgoingLang = value;
         }} />
-        <Text style={styles.hint}>!en inglês · !es espanhol · !pt português (BR) · !raw texto original. Os atalhos funcionam mesmo com a tradução automática desligada.</Text>
+        <Text style={styles.hint}>!en inglês · !es espanhol · !pt português (BR) · !raw texto original. Os atalhos funcionam mesmo com a tradução automática desligada, respeitam os filtros de envio e podem vir após um cabeçalho como [TEST] em linha separada.</Text>
       </Section>
     </View>
   );
@@ -637,7 +637,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
-        <Text style={styles.hint}>by NSC · R30</Text>
+        <Text style={styles.hint}>by NSC · R31</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>

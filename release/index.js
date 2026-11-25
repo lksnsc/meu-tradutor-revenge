@@ -192,6 +192,10 @@ var __plugin = (() => {
   var storage = vendetta.plugin.storage;
 
   // plugins/meu-tradutor/src/translator.ts
+  function cleanString(value) {
+    return typeof value === "string" ? value.trim() : "";
+  }
+  __name(cleanString, "cleanString");
   var DEFAULT_MODELS = {
     gemini: "gemini-3.5-flash-lite",
     openai: "gpt-4o-mini",
@@ -311,7 +315,7 @@ var __plugin = (() => {
   var TranslationRequestError = _TranslationRequestError;
   var pauses = /* @__PURE__ */ new Map();
   function pauseKey(provider, model) {
-    return provider + ":" + (model?.trim().replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+    return provider + ":" + (cleanString(model).replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
   }
   __name(pauseKey, "pauseKey");
   function translationPause(provider, model) {
@@ -413,7 +417,7 @@ var __plugin = (() => {
   __name(postJson, "postJson");
   async function translateText(text, config) {
     const { provider, targetLang } = config;
-    const apiKey = config.apiKey.trim();
+    const apiKey = cleanString(config.apiKey);
     if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
     if (!hasTranslatableText(text)) return text;
     const pause = translationPause(provider, config.model);
@@ -437,7 +441,7 @@ var __plugin = (() => {
       if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
       translated = entry?.text;
     } else {
-      const model = config.model?.trim() || DEFAULT_MODELS[provider];
+      const model = cleanString(config.model) || DEFAULT_MODELS[provider];
       if (!model) throw new Error("Informe o modelo do provedor personalizado.");
       const instructions = systemPrompt(targetLang);
       if (provider === "gemini") {
@@ -453,7 +457,7 @@ var __plugin = (() => {
         }
         translated = candidate?.content?.parts?.filter((part) => !part.thought).map((part) => part.text ?? "").join("");
       } else {
-        const endpoint = provider === "custom" ? config.customEndpoint?.trim() : CHAT_ENDPOINTS[provider];
+        const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
         if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
           throw new Error("Informe a URL HTTPS completa do endpoint compat\xEDvel com OpenAI.");
         }
@@ -495,9 +499,9 @@ var __plugin = (() => {
     storage2.filterGuilds ?? (storage2.filterGuilds = []);
     storage2.applyFilterToOutgoing ?? (storage2.applyFilterToOutgoing = true);
     storage2.provider ?? (storage2.provider = "gemini");
-    storage2.customEndpoint ?? (storage2.customEndpoint = "");
-    storage2.apiKeys ?? (storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
-    storage2.models ?? (storage2.models = { ...DEFAULT_MODELS });
+    if (typeof storage2.customEndpoint !== "string") storage2.customEndpoint = "";
+    if (!storage2.apiKeys || typeof storage2.apiKeys !== "object" || Array.isArray(storage2.apiKeys)) storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
+    if (!storage2.models || typeof storage2.models !== "object" || Array.isArray(storage2.models)) storage2.models = { ...DEFAULT_MODELS };
     if (!(storage2.provider in PROVIDER_NAMES)) storage2.provider = "gemini";
     if (!(storage2.targetLang in LANG_NAMES)) storage2.targetLang = "PT-BR";
     if (!(storage2.outgoingLang in LANG_NAMES)) storage2.outgoingLang = "EN";
@@ -677,7 +681,7 @@ var __plugin = (() => {
     const manual = manualState[0];
     const setManual = manualState[1];
     const save = /* @__PURE__ */ __name((field, input, manually = false) => {
-      const id = input?.trim();
+      const id = cleanString(input);
       if (!id || !/^\d{1,20}$/.test(id) || /^0+$/.test(id)) {
         showToast(manually ? "Informe um ID num\xE9rico v\xE1lido." : "Abra um canal ou servidor e tente novamente.");
         return;
@@ -746,8 +750,8 @@ var __plugin = (() => {
       TextInput,
       {
         accessibilityLabel: label,
-        value,
-        onChangeText: onChange,
+        value: typeof value === "string" ? value : "",
+        onChangeText: (text) => onChange(typeof text === "string" ? text : ""),
         secureTextEntry: secure,
         autoCapitalize: "none",
         autoCorrect: false,
@@ -772,7 +776,7 @@ var __plugin = (() => {
     "gemini-2.5-pro": "Gemini 2.5 Pro (legado)"
   };
   async function loadGeminiModels(key) {
-    if (!key.trim()) throw new Error("Informe sua chave de API Gemini.");
+    if (!cleanString(key)) throw new Error("Informe sua chave de API Gemini.");
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 3e4);
     const models = {};
@@ -782,7 +786,7 @@ var __plugin = (() => {
       do {
         const url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" + (token ? "&pageToken=" + encodeURIComponent(token) : "");
         const response = await fetch(url, {
-          headers: { "x-goog-api-key": key.trim() },
+          headers: { "x-goog-api-key": cleanString(key) },
           signal: controller.signal
         });
         if (!response.ok) throw new Error("Google retornou HTTP " + response.status + " ao listar modelos.");
@@ -809,14 +813,14 @@ var __plugin = (() => {
     onIncomingChange
   }) {
     const { colors, styles } = getTheme();
-    const apiKeyState = React.useState(storage2.apiKeys[provider] ?? "");
+    const apiKeyState = React.useState(cleanString(storage2.apiKeys?.[provider]));
     const apiKey = apiKeyState[0];
     const setApiKey = apiKeyState[1];
-    const savedModel = provider === "deepl" ? "" : storage2.models[provider] ?? DEFAULT_MODELS[provider];
+    const savedModel = provider === "deepl" ? "" : cleanString(storage2.models?.[provider]) || DEFAULT_MODELS[provider];
     const modelState = React.useState(savedModel);
     const model = modelState[0];
     const setModel = modelState[1];
-    const endpointState = React.useState(storage2.customEndpoint);
+    const endpointState = React.useState(cleanString(storage2.customEndpoint));
     const endpoint = endpointState[0];
     const setEndpoint = endpointState[1];
     const testState = React.useState("");
@@ -845,7 +849,7 @@ var __plugin = (() => {
       setLoading(true);
       setCatalogStatus("Consultando cat\xE1logo do Google...");
       try {
-        const result = await loadGeminiModels(apiKey);
+        const result = await loadGeminiModels(cleanString(apiKey));
         setCatalog(result);
         setCatalogOpen(true);
         setCatalogStatus(Object.keys(result).length + " modelos encontrados. Teste o modelo escolhido para verificar acesso e cota.");
@@ -855,23 +859,27 @@ var __plugin = (() => {
         setLoading(false);
       }
     }, "refreshCatalog");
-    const matchingModels = Object.keys(catalog).filter((id) => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
+    const matchingModels = Object.keys(catalog).filter((id) => (id + " " + catalog[id]).toLowerCase().includes(cleanString(query).toLowerCase()));
     const testApi = /* @__PURE__ */ __name(async (activate = false) => {
       if (testing) return;
       setTesting(true);
       setTestResult("Consultando o provedor...");
       try {
-        const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
+        const nextKey = cleanString(apiKey);
+        const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+        const nextEndpoint = provider === "custom" ? cleanString(endpoint) : void 0;
+        if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+        const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
         if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo n\xE3o traduziu a frase de teste.");
         if (activate) {
-          storage2.apiKeys = { ...storage2.apiKeys, [provider]: apiKey.trim() };
-          if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: model.trim() };
-          if (provider === "custom") storage2.customEndpoint = endpoint.trim();
+          storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
+          if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
+          if (provider === "custom") storage2.customEndpoint = nextEndpoint ?? "";
           storage2.provider = provider;
           storage2.autoTranslate = true;
           onIncomingChange(true);
         }
-        setTestResult("Resposta da API (" + (model.trim() || provider) + "): " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
+        setTestResult("Resposta da API (" + (nextModel || provider) + "): " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
       } catch (error) {
         setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
       } finally {
@@ -879,9 +887,9 @@ var __plugin = (() => {
       }
     }, "testApi");
     const save = /* @__PURE__ */ __name(() => {
-      const nextKey = apiKey.trim();
-      const nextModel = model.trim();
-      const nextEndpoint = endpoint.trim();
+      const nextKey = cleanString(apiKey);
+      const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
+      const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
       if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint) {
         storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
         if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };

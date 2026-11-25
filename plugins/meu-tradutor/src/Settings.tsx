@@ -379,24 +379,32 @@ function ProviderFields({
     if (testing) return;
     setTesting(true);
     setTestResult("Consultando o provedor...");
+    let stage = "validação";
     try {
       const nextKey = cleanString(apiKey);
       const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : undefined;
       if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+      stage = "requisição e tradução";
       const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
-      if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo não traduziu a frase de teste.");
+      stage = "validação da resposta";
+      const translated = cleanString(result);
+      if (!translated) throw new Error("O motor não devolveu texto válido.");
+      if (translated.toLowerCase() === "good morning, how are you?") throw new Error("O modelo não traduziu a frase de teste.");
+      stage = "salvamento";
       if (activate) {
         storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
         if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
         if (provider === "custom") storage.customEndpoint = nextEndpoint ?? "";
         storage.provider = provider;
         storage.autoTranslate = true;
-        onIncomingChange(true);
+        await onIncomingChange(true);
       }
-      setTestResult("Resposta da API (" + (nextModel || provider) + "): " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
+      stage = "exibição do resultado";
+      setTestResult("Resposta da API (" + (nextModel || provider) + "): " + translated + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
     } catch (error) {
-      setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
+      const detail = error instanceof Error ? error.message : String(error);
+      setTestResult("Falha [" + stage + "]: " + detail);
     } finally { setTesting(false); }
   };
 
@@ -434,7 +442,6 @@ function ProviderFields({
               <Text style={styles.modelTitle}>{catalog[activeModel] || activeModel || "Selecionar modelo"}</Text>
               {catalog[activeModel] && catalog[activeModel] !== activeModel && <Text style={styles.modelId}>{activeModel}</Text>}
             </View>
-            <Text style={styles.modelChevron}>{catalogOpen ? "⌃" : "⌄"}</Text>
           </Pressable>
           {catalogOpen && (
             <View style={styles.modelPanel}>
@@ -635,7 +642,6 @@ function makeStyles(colors: typeof palettes["kaiju-dark"]) {
     modelEyebrow: { color: colors.muted, fontSize: 9, fontWeight: "900", letterSpacing: 1, marginBottom: 4 },
     modelTitle: { color: colors.text, fontSize: 16, fontWeight: "900" },
     modelId: { color: colors.muted, fontSize: 10, marginTop: 2 },
-    modelChevron: { color: colors.text, fontSize: 24, marginLeft: 10 },
     modelPanel: { ...edge, borderColor: colors.outline, backgroundColor: colors.card, marginTop: 5, padding: 8 },
     modelPanelHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 4, marginBottom: 6 },
     modelCount: { color: colors.muted, fontSize: 11, fontWeight: "800" },

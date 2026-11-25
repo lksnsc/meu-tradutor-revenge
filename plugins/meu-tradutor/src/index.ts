@@ -4,7 +4,7 @@ import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
-import { hasTranslatableText, translateText, translationPause, TranslationRequestError, type LangCode } from "./translator";
+import { cleanString, hasTranslatableText, translateText, translationPause, TranslationRequestError, type LangCode } from "./translator";
 
 interface MessageRow {
   rowType?: number;
@@ -256,7 +256,7 @@ function startTranslation(id: string, controller: AbortController, session: Abor
 function pumpQueue(): void {
   const controller = incomingController;
   const session = outgoingController;
-  if (!controller || controller.signal.aborted || !session || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
+  if (!controller || controller.signal.aborted || !session || !storage.autoTranslate || !cleanString(storage.apiKeys?.[storage.provider])) return;
   const model = storage.provider === "deepl" ? undefined : storage.models[storage.provider];
   const pause = translationPause(storage.provider, model);
   if (pause) return;
@@ -323,7 +323,7 @@ function interceptRow(args: [MessageRow?, ...unknown[]]): [MessageRow?, ...unkno
 function scanSelectedChannel(): void {
   if (!outgoingController) return;
   if (!storage.autoTranslate) { stats.captureStatus = "Tradução automática desligada"; notifyStats(); return; }
-  if (!storage.apiKeys[storage.provider]?.trim()) { stats.captureStatus = "Chave de API não configurada"; notifyStats(); return; }
+  if (!cleanString(storage.apiKeys?.[storage.provider])) { stats.captureStatus = "Chave de API não configurada"; notifyStats(); return; }
   try {
     if (!stores.selectedChannel || !stores.messages?.getMessages || !stores.users) findStores();
     const channelId = stores.selectedChannel?.getChannelId();
@@ -383,7 +383,7 @@ export function clearCacheAndRetranslate(): void {
 function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown): unknown {
   const [channelId, message, ...options] = args;
   const content = message?.content;
-  if (typeof content !== "string" || !content.trim() || content.trimStart().startsWith("/")) {
+  if (typeof content !== "string" || !cleanString(content) || cleanString(content).startsWith("/")) {
     return original(...args);
   }
 

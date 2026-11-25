@@ -66,6 +66,7 @@ const vendetta={
 };
 const originalFetch=globalThis.fetch;
 let httpError=0;
+let malformedResponse=false;
 globalThis.fetch=async(url,init)=>{
   assert.match(url,/^https:\/\/generativelanguage\.googleapis\.com\/v1beta\/models\//);
   assert.equal(init.headers["x-goog-api-key"],"synthetic-key");
@@ -74,6 +75,7 @@ globalThis.fetch=async(url,init)=>{
   const input=body.contents[0].parts[0].text;
   requests.push(input);
   assert.ok(!input.includes("Private other channel")&&!input.includes("My own message"));
+  if(malformedResponse) return {ok:true,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{}, {thought:true,text:"internal"}]}}]})};
   if(httpError) return {ok:false,status:httpError,headers:{get:()=>null},json:async()=>({error:{status:httpError===429?"RESOURCE_EXHAUSTED":"PERMISSION_DENIED"}})};
   const translated=input.replace("Good morning","Bom dia").replace("Good night","Boa noite").replace("Good evening","Boa tarde").replace("Good morning, how are you?","Bom dia, como vai?").replace("Hello","Olá");
   return {ok:true,json:async()=>({candidates:[{finishReason:"STOP",content:{parts:[{text:translated}]}}]})};
@@ -114,6 +116,7 @@ try {
   assert.ok(!byLabel("Pressable","Selecionar Gemini 4 Neon"));
   await act(async()=>byLabel("Pressable","Selecionar Gemini 4 Hydrogen").props.onPress());
   assert.ok(!byLabel("TextInput","Pesquisar modelo"),"O seletor deve fechar após a escolha");
+  assert.ok(!settings.root.findAllByType("Text").some(x=>["⌃","⌄"].includes(x.props.children)),"Seletor não deve exibir seta");
   await act(async()=>press("Editar ID"));
   await act(async()=>byLabel("TextInput","ID do modelo").props.onChangeText("integration-model"));
   await act(async()=>press("Ocultar ID"));
@@ -123,6 +126,13 @@ try {
   assert.equal(requests.length,prior+1,"Teste API deve chegar à rede mesmo sem endpoint customizado");
   const hasText=phrase=>settings.root.findAllByType("Text").some(x=>typeof x.props.children==="string"&&x.props.children.includes(phrase));
   assert.ok(hasText("Resposta da API"),"Teste não exibiu sucesso");
+  malformedResponse=true;
+  await act(async()=>{press("Testar API agora");await pause(30);});
+  assert.ok(hasText("não retornou texto traduzido"),"Resposta sem texto deve gerar mensagem específica");
+  assert.ok(!hasText("Cannot read property"),"Não deve expor erro de propriedade indefinida");
+  malformedResponse=false;
+  await act(async()=>{press("Testar API agora");await pause(30);});
+  assert.ok(hasText("Resposta da API"),"Teste deve recuperar após resposta inválida");
   await act(async()=>press("Salvar API"));
   assert.ok(storage.apiKeys.gemini==="synthetic-key");
   await act(async()=>{press("Testar, salvar e ativar tradução");await pause(40);});

@@ -13,7 +13,7 @@ export interface TranslatorConfig {
 }
 
 export function cleanString(value: unknown): string {
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? value.replace(/^\s+|\s+$/g, "") : "";
 }
 
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
@@ -58,6 +58,7 @@ try {
 }
 
 export function hasTranslatableText(text: string): boolean {
+  if (typeof text !== "string") return false;
   const remaining = text.replace(keycap, "").replace(discordToken, "");
   return (remaining.match(textCharacter)?.length ?? 0) >= 2;
 }
@@ -80,7 +81,7 @@ function protect(text: string, xml: boolean) {
   const pieces: string[] = [];
   const [leading] = text.match(/^\s*/) ?? [""];
   const [trailing] = text.match(/\s*$/) ?? [""];
-  const core = text.trim();
+  const core = cleanString(text);
   const token = (index: number) => prefix + index + "QXZ";
   const plainMarker = new RegExp(prefix + "\\d+QXZ", "g");
   let end = 0;
@@ -101,7 +102,7 @@ function protect(text: string, xml: boolean) {
   return {
     text: xml ? "<msg>" + masked + "</msg>" : masked,
     restore(translated: string): string {
-      let result = translated.trim();
+      let result = cleanString(translated);
       if (!result) throw new Error("O provedor retornou uma tradução vazia.");
       if (xml) {
         if (!result.startsWith("<msg>") || !result.endsWith("</msg>")) {
@@ -251,6 +252,7 @@ async function postJson<T>(
 }
 
 export async function translateText(text: string, config: TranslatorConfig): Promise<string> {
+  if (typeof text !== "string") throw new Error("Texto de tradução inválido.");
   const { provider, targetLang } = config;
   const apiKey = cleanString(config.apiKey);
   if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
@@ -258,7 +260,7 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
   const pause = translationPause(provider, config.model);
   if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1000) + " s.");
 
-  const useXml = provider === "deepl" && Boolean(text.trim().match(discordToken));
+  const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
   const protectedText = protect(text, useXml);
   let translated: string | undefined;
 
@@ -298,7 +300,8 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
       if (candidate?.finishReason && candidate.finishReason !== "STOP") {
         throw new Error("O Gemini não concluiu a tradução (" + candidate.finishReason + ").");
       }
-      translated = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text ?? "").join("");
+      const parts = candidate?.content?.parts;
+      translated = Array.isArray(parts) ? parts.filter(part => part && !part.thought && typeof part.text === "string").map(part => part.text).join("") : undefined;
     } else {
       const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
       if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
@@ -322,9 +325,12 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
     }
   }
 
-  if (typeof translated !== "string" || !translated.trim()) {
+  if (!cleanString(translated)) {
     throw new Error(PROVIDER_NAMES[provider] + " não retornou texto traduzido.");
   }
 
-  return protectedText.restore(translated);
+  if (typeof translated !== "string") throw new Error("Resposta sem texto de tradução.");
+  const restored = protectedText.restore(translated);
+  if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restauração não devolveu texto válido.");
+  return restored;
 }

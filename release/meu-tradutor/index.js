@@ -295,9 +295,70 @@ var __plugin = (() => {
   }
   __name(systemPrompt, "systemPrompt");
   var _TranslationRequestError = class _TranslationRequestError extends Error {
+    constructor(message, status = 0, retryMs = 0) {
+      super(message);
+      this.status = status;
+      this.retryMs = retryMs;
+    }
   };
   __name(_TranslationRequestError, "TranslationRequestError");
   var TranslationRequestError = _TranslationRequestError;
+  var pauses = /* @__PURE__ */ new Map();
+  function pauseKey(provider, model) {
+    return provider + ":" + (model?.trim().replace(/^models\//, "") || (provider === "deepl" ? "" : DEFAULT_MODELS[provider]));
+  }
+  __name(pauseKey, "pauseKey");
+  function translationPause(provider, model) {
+    const key = pauseKey(provider, model);
+    const pause = pauses.get(key);
+    if (pause && pause.until > Date.now()) return pause;
+    pauses.delete(key);
+  }
+  __name(translationPause, "translationPause");
+  async function requestFailure(response, config) {
+    const status = response.status;
+    let retryMs = 0;
+    const parts = [PROVIDER_NAMES[config.provider] + " retornou HTTP " + status + "."];
+    try {
+      const header = response.headers?.get("Retry-After");
+      if (header) {
+        const n = Number(header);
+        retryMs = Number.isFinite(n) ? n * 1e3 : Math.max(0, Date.parse(header) - Date.now());
+      }
+      const payload = await response.json();
+      const code = payload.error?.status;
+      if (typeof code === "string" && /^[A-Z_]{1,60}$/.test(code)) parts.push(code + ".");
+      const message = payload.error?.message ?? "";
+      const zero = /(?:limit|quota)\s*[:=]\s*0\b/i.test(message);
+      let daily = false;
+      for (const detail of payload.error?.details ?? []) {
+        if (typeof detail.retryDelay === "string" && /^\d+(?:\.\d+)?s$/.test(detail.retryDelay))
+          retryMs = Math.max(retryMs, Number(detail.retryDelay.slice(0, -1)) * 1e3);
+        for (const violation of detail.violations ?? []) {
+          const metric = violation.quotaMetric ?? "";
+          const id = violation.quotaId ?? "";
+          const dimension = /per.?day|daily/i.test(metric + id) ? "di\xE1ria" : /per.?minute|minute/i.test(metric + id) ? "por minuto" : "do projeto/modelo";
+          daily || (daily = dimension === "di\xE1ria");
+          const value = String(violation.quotaValue ?? "");
+          const limit = /^\d{1,15}$/.test(value) ? " (limite: " + value + ")" : "";
+          parts.push("Cota " + dimension + limit + ".");
+        }
+      }
+      if (status === 429 && (zero || daily)) parts.push("Confira a cota e o faturamento do projeto no AI Studio.");
+    } catch {
+    }
+    if (status === 429 || status === 503) {
+      retryMs = Math.max(Number.isFinite(retryMs) ? retryMs : 0, status === 429 ? 6e4 : 15e3);
+      parts.push("Aguarde pelo menos " + Math.ceil(retryMs / 1e3) + " s antes de tentar novamente.");
+      const reason = parts.join(" ");
+      const key = pauseKey(config.provider, config.model);
+      const until = Math.max(Date.now() + retryMs, pauses.get(key)?.until ?? 0);
+      pauses.set(key, { until, reason });
+      return new TranslationRequestError(reason, status, retryMs);
+    }
+    return new TranslationRequestError(parts.join(" "), status);
+  }
+  __name(requestFailure, "requestFailure");
   async function postJson(url, headers, body, config) {
     const controller = new AbortController();
     let rejectInterrupted;
@@ -321,7 +382,7 @@ var __plugin = (() => {
           signal: controller.signal
         });
         if (!response.ok) {
-          throw new TranslationRequestError(PROVIDER_NAMES[config.provider] + " retornou HTTP " + response.status + ".");
+          throw await requestFailure(response, config);
         }
         try {
           return await response.json();
@@ -349,6 +410,8 @@ var __plugin = (() => {
     const apiKey = config.apiKey.trim();
     if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
     if (!hasTranslatableText(text)) return text;
+    const pause = translationPause(provider, config.model);
+    if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s.");
     const useXml = provider === "deepl" && Boolean(text.trim().match(discordToken));
     const protectedText = protect(text, useXml);
     let translated;
@@ -981,7 +1044,9 @@ var __plugin = (() => {
   }
   __name(notifyUser, "notifyUser");
   function readStats() {
-    return { ...stats, cachedMessages: translationCache.size };
+    const model = storage2.provider === "deepl" ? void 0 : storage2.models?.[storage2.provider];
+    const pause = translationPause(storage2.provider, model);
+    return { ...stats, cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s." : stats.lastError };
   }
   __name(readStats, "readStats");
   function subscribeStats(listener) {
@@ -1163,9 +1228,12 @@ var __plugin = (() => {
   function pumpQueue() {
     const controller = incomingController;
     const session = outgoingController;
-    if (!controller || !session || !storage2.autoTranslate) return;
+    if (!controller || !session || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
+    const model = storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider];
+    const pause = translationPause(storage2.provider, model);
+    if (pause) return;
     for (const id of Array.from(queue)) {
-      if (inFlight.size >= MAX_INFLIGHT) break;
+      if (inFlight.size >= (storage2.provider === "gemini" ? 1 : MAX_INFLIGHT)) break;
       if (inFlight.has(cacheKey(id))) continue;
       queue.delete(id);
       startTranslation(id, controller, session);
@@ -1241,6 +1309,7 @@ var __plugin = (() => {
           observeMessage(message, channelId);
       }
       if (!unpatchRowManager) stats.incomingStatus = "Captura por MessageStore";
+      pumpQueue();
       notifyStats();
     } catch (error) {
       stats.lastError = "Hist\xF3rico local: " + describeError(error);

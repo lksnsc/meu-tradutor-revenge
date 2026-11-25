@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R32"));
+assert.ok(code.includes("R33"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -64,10 +64,13 @@ const storage = new Proxy({autoTranslate:true,provider:"gemini",apiKeys:{gemini:
   set(target,key,value){target[key]=value;for(const fn of listeners.SET)fn("SET",{path:[key],value});return true;}
 });
 const drafts=new Map();
+const liveDrafts=new Map();
+const liveInput={getText(){return liveDrafts.get("1")??"";},setText(text){liveDrafts.set("1",text);}};
+const chatInputs={getBestActiveInputForChannelId(channel){return channel==="1"?liveInput:undefined;}};
 const draftStore={getDraft(channel,type){assert.equal(type,0);return drafts.get(channel)??"";}};
 const draftActions={saveDraft(channel,type,text){assert.equal(type,0);drafts.set(channel,text);},clearDraft(channel,type){drafts.delete(channel);}};
 const stores = {DraftStore:draftStore,MessageStore:messageStore,UserStore:currentUser,SelectedChannelStore:selectedChannel,ChannelStore:channelStore};
-const candidates=[React,RN,dispatcher,actions,messageStore,selectedChannel,currentUser,channelStore,draftStore,draftActions];
+const candidates=[React,RN,dispatcher,actions,messageStore,selectedChannel,currentUser,channelStore,draftStore,draftActions,chatInputs];
 const vendetta={
   metro:{common:{React,ReactNative:RN,FluxDispatcher:dispatcher},findByName:name=>name==="RowManager"?RowManager:undefined,findByProps:(...keys)=>candidates.find(m=>keys.every(k=>k in m)),findByPropsAll:(...keys)=>candidates.filter(m=>keys.every(k=>k in m)),find:fn=>[RowManager,...candidates].find(fn),findByStoreName:name=>stores[name]},
   plugin:{id:"https://test.invalid/polyzilla/",storage,manifest},
@@ -217,14 +220,15 @@ try {
   storage.translateDraft=true;
   await pause(300);
   const sentBefore=sends.length;
-  draftActions.saveDraft("1",0,"Olá, tudo bem?");
+  liveDrafts.set("1","Olá, tudo bem?");
   await pause(2500);
   assert.equal(draftCalls,0,"Não deve chamar antes de 5 segundos");
-  draftActions.saveDraft("1",0,"Eu estou bem.");
+  liveDrafts.set("1","Eu estou bem.");
   await pause(3000);
   assert.equal(draftCalls,0,"Nova digitação reinicia o prazo");
-  await waitFor(()=>draftStore.getDraft("1",0)==="I am fine.",3500);
+  await waitFor(()=>liveDrafts.get("1")==="I am fine.",3500);
   assert.equal(draftCalls,1);
+  assert.equal(draftStore.getDraft("1",0),"","O store pode permanecer vazio enquanto o compositor tem texto");
   assert.equal(sends.length,sentBefore,"Traduzir rascunho nunca envia");
   await pause(5500);
   assert.equal(draftCalls,1,"Rascunho traduzido não pode ser traduzido novamente");
@@ -232,17 +236,17 @@ try {
   assert.equal(actions.sendMessage("1",{content:"I am fine."}),"I am fine.");
   assert.equal(draftCalls,1);
   storage.translateOutgoing=false;
-  draftActions.clearDraft("1",0);
+  liveDrafts.delete("1");
   await pause(250);
-  draftActions.saveDraft("1",0,"Olá, tudo bem?");
+  liveDrafts.set("1","Olá, tudo bem?");
   await pause(300);
   selected="2";
   await pause(5300);
   assert.equal(draftCalls,1,"Trocar canal cancela");
-  assert.equal(draftStore.getDraft("1",0),"Olá, tudo bem?");
+  assert.equal(liveDrafts.get("1"),"Olá, tudo bem?");
   selected="1"; storage.translateDraft=false;
   await pause(250);
-  draftActions.clearDraft("1",0);
+  liveDrafts.delete("1");
   await act(async()=>press("Estatísticas"));
   assert.ok(settings.root.findAllByType("View").some(x=>x.props.style?.flexDirection==="column" && x.props.style?.alignItems==="stretch"));
   assert.ok(hasText("Provedor / modelo salvo")); 

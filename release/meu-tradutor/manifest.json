@@ -1,0 +1,15 @@
+{
+  "name": "Meu Tradutor",
+  "description": "Traduz mensagens recebidas e enviadas entre português (BR), inglês e espanhol.",
+  "authors": [
+    {
+      "name": "Meu Tradutor",
+      "id": "0"
+    }
+  ],
+  "main": "index.js",
+  "vendetta": {
+    "icon": "GlobeIcon"
+  },
+  "hash": "698a7e30a2b7f9e28f15f1a391dd99ecf306572246a11aadfbe5ffb76d78b286"
+}

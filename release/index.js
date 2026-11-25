@@ -203,6 +203,7 @@ var __plugin = (() => {
     openrouter: "google/gemini-2.5-flash",
     groq: "qwen/qwen3.8-27b",
     "openrouter-free": "openrouter/free",
+    cloudflare: "@cf/meta/m2m100-1.2b",
     custom: ""
   };
   var PROVIDER_NAMES = {
@@ -213,6 +214,7 @@ var __plugin = (() => {
     openrouter: "OpenRouter",
     groq: "Groq (plano Free)",
     "openrouter-free": "OpenRouter gratuito",
+    cloudflare: "Cloudflare Workers AI",
     custom: "Personalizado"
   };
   var LANG_NAMES = {
@@ -322,7 +324,7 @@ var __plugin = (() => {
   var TranslationRequestError = _TranslationRequestError;
   var pauses = /* @__PURE__ */ new Map();
   function selectedModel(provider, model) {
-    if (provider === "groq" || provider === "openrouter-free") return DEFAULT_MODELS[provider];
+    if (provider === "groq" || provider === "openrouter-free" || provider === "cloudflare") return DEFAULT_MODELS[provider];
     return cleanString(model) || DEFAULT_MODELS[provider];
   }
   __name(selectedModel, "selectedModel");
@@ -472,6 +474,26 @@ var __plugin = (() => {
       if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s.");
       const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
       const protectedText = protect(text, useXml);
+      if (provider === "cloudflare") {
+        const account = cleanString(config.cloudflareAccountId);
+        if (!/^[a-f0-9]{32}$/i.test(account)) throw new Error("Informe o Account ID da Cloudflare (32 caracteres hexadecimais).");
+        const codes = { "PT-BR": "pt", EN: "en", ES: "es" };
+        const source = config.sourceLang || "EN";
+        if (!codes[source] || !codes[targetLang]) throw new Error("Idioma de origem ou destino inv\xE1lido.");
+        if (source === targetLang) return Promise.resolve(text);
+        return postJson(
+          "https://api.cloudflare.com/client/v4/accounts/" + account + "/ai/run/" + DEFAULT_MODELS.cloudflare,
+          { Authorization: "Bearer " + apiKey },
+          { text: protectedText.text, source_lang: codes[source], target_lang: codes[targetLang] },
+          config
+        ).then(/* @__PURE__ */ __name(function parseCloudflare(response) {
+          if (response?.success !== true) {
+            const code = response?.errors?.[0]?.code;
+            throw new TranslationRequestError("Cloudflare recusou a tradu\xE7\xE3o" + (typeof code === "number" ? " (c\xF3digo " + code + ")" : "") + ".");
+          }
+          return complete2(response.result?.translated_text);
+        }, "parseCloudflare"));
+      }
       if (provider === "deepl") {
         const endpoint = apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
         return postJson(endpoint + "/v2/translate", { Authorization: "DeepL-Auth-Key " + apiKey }, {
@@ -558,9 +580,12 @@ var __plugin = (() => {
     storage2.applyFilterToOutgoing ?? (storage2.applyFilterToOutgoing = true);
     storage2.provider ?? (storage2.provider = "gemini");
     if (typeof storage2.customEndpoint !== "string") storage2.customEndpoint = "";
-    if (!storage2.apiKeys || typeof storage2.apiKeys !== "object" || Array.isArray(storage2.apiKeys)) storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", custom: "" };
+    if (typeof storage2.cloudflareAccountId !== "string") storage2.cloudflareAccountId = "";
+    if (!["EN", "ES", "PT-BR"].includes(storage2.cloudflareIncomingSource)) storage2.cloudflareIncomingSource = "EN";
+    if (!["EN", "ES", "PT-BR"].includes(storage2.cloudflareOutgoingSource)) storage2.cloudflareOutgoingSource = "PT-BR";
+    if (!storage2.apiKeys || typeof storage2.apiKeys !== "object" || Array.isArray(storage2.apiKeys)) storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", cloudflare: "", custom: "" };
     if (!storage2.models || typeof storage2.models !== "object" || Array.isArray(storage2.models)) storage2.models = { ...DEFAULT_MODELS };
-    if (storage2.models.groq !== DEFAULT_MODELS.groq || storage2.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"]) storage2.models = { ...storage2.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"] };
+    if (storage2.models.groq !== DEFAULT_MODELS.groq || storage2.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"] || storage2.models.cloudflare !== DEFAULT_MODELS.cloudflare) storage2.models = { ...storage2.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"], cloudflare: DEFAULT_MODELS.cloudflare };
     if (!(storage2.provider in PROVIDER_NAMES)) storage2.provider = "gemini";
     if (!(storage2.targetLang in LANG_NAMES)) storage2.targetLang = "PT-BR";
     if (!(storage2.outgoingLang in LANG_NAMES)) storage2.outgoingLang = "EN";
@@ -879,6 +904,9 @@ var __plugin = (() => {
     const modelState = React.useState(savedModel);
     const model = modelState[0];
     const setModel = modelState[1];
+    const accountState = React.useState(cleanString(storage2.cloudflareAccountId));
+    const account = accountState[0];
+    const setAccount = accountState[1];
     const endpointState = React.useState(cleanString(storage2.customEndpoint));
     const endpoint = endpointState[0];
     const setEndpoint = endpointState[1];
@@ -958,6 +986,7 @@ var __plugin = (() => {
         const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
         const nextEndpoint = provider === "custom" ? cleanString(endpoint) : void 0;
         if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+        const nextAccount = cleanString(account);
         stage = "requisi\xE7\xE3o e tradu\xE7\xE3o";
         const request = translateText(sample, {
           provider,
@@ -965,6 +994,8 @@ var __plugin = (() => {
           apiKey: nextKey,
           model: nextModel,
           customEndpoint: nextEndpoint,
+          cloudflareAccountId: nextAccount,
+          sourceLang: "EN",
           onResponse: /* @__PURE__ */ __name(function recordStatus(status) {
             if (typeof status === "number") httpStatus = status;
           }, "recordStatus")
@@ -984,6 +1015,7 @@ var __plugin = (() => {
           storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
           if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
           if (provider === "custom") storage2.customEndpoint = nextEndpoint ?? "";
+          if (provider === "cloudflare") storage2.cloudflareAccountId = nextAccount;
           storage2.provider = provider;
           storage2.autoTranslate = true;
           Promise.resolve(onIncomingChange(true)).then(/* @__PURE__ */ __name(function activated() {
@@ -999,10 +1031,16 @@ var __plugin = (() => {
       const nextKey = cleanString(apiKey);
       const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
-      if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint) {
+      const nextAccount = cleanString(account);
+      if (provider === "cloudflare" && !/^[a-f0-9]{32}$/i.test(nextAccount)) {
+        setTestResult("Informe o Account ID v\xE1lido da Cloudflare.");
+        return;
+      }
+      if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint || provider === "cloudflare" && nextAccount !== storage2.cloudflareAccountId) {
         storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
         if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
         if (provider === "custom") storage2.customEndpoint = nextEndpoint;
+        if (provider === "cloudflare") storage2.cloudflareAccountId = nextAccount;
         onIncomingChange(true);
       }
       showToast("Configura\xE7\xE3o da API salva.");
@@ -1016,7 +1054,7 @@ var __plugin = (() => {
         placeholder: "Cole a sua chave",
         secure: true
       }
-    ), provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && /* @__PURE__ */ React.createElement(
+    ), provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && provider !== "cloudflare" && /* @__PURE__ */ React.createElement(
       ApiInput,
       {
         label: "Modelo",
@@ -1024,7 +1062,12 @@ var __plugin = (() => {
         onChange: setModel,
         placeholder: DEFAULT_MODELS[provider] || "Nome do modelo"
       }
-    ), (provider === "groq" || provider === "openrouter-free") && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo gratuito"), /* @__PURE__ */ React.createElement(View, { style: styles.modelTrigger }, /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, provider === "groq" ? "GROQ \xB7 PLANO FREE" : "OPENROUTER \xB7 SOMENTE GRATUITOS"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, provider === "groq" ? "Qwen 3.8 27B" : "Free Models Router"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, DEFAULT_MODELS[provider]))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Use uma chave do plano Free da Groq. Limite publicado: 1.000 requisi\xE7\xF5es/dia, 30/min, sujeito tamb\xE9m a cotas de tokens. Contas pagas podem cobrar pelo uso." : "Roteamento somente para modelos gratuitos, sem troca para modelos pagos. Limite padr\xE3o: 50 requisi\xE7\xF5es/dia, 20/min."), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Crie sua chave em console.groq.com/keys" : "Crie sua chave em openrouter.ai/keys")), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo de tradu\xE7\xE3o"), /* @__PURE__ */ React.createElement(
+    ), provider === "cloudflare" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(ApiInput, { label: "Account ID da Cloudflare", value: account, onChange: setAccount, placeholder: "32 caracteres hexadecimais" }), /* @__PURE__ */ React.createElement(View, { style: styles.modelTrigger }, /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, "WORKERS AI \xB7 COTA GRATUITA"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, "Meta M2M100 1.2B"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, DEFAULT_MODELS.cloudflare))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Use um token Workers AI Read restrito \xE0 sua conta. Cota gratuita compartilhada: 10.000 neur\xF4nios/dia. O plano pago pode cobrar excedentes. O modelo exige idioma de origem definido."), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma de origem das mensagens recebidas"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage2.cloudflareIncomingSource, onChange: (value) => {
+      storage2.cloudflareIncomingSource = value;
+      onIncomingChange(true);
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Idioma de origem das mensagens enviadas"), /* @__PURE__ */ React.createElement(Options, { labels: LANG_NAMES, value: storage2.cloudflareOutgoingSource, onChange: (value) => {
+      storage2.cloudflareOutgoingSource = value;
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Teste da API: ingl\xEAs para portugu\xEAs, independentemente dos idiomas dos chats. Obtenha as credenciais em Workers AI \u2192 Use REST API.")), (provider === "groq" || provider === "openrouter-free") && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo gratuito"), /* @__PURE__ */ React.createElement(View, { style: styles.modelTrigger }, /* @__PURE__ */ React.createElement(View, { style: styles.modelMain }, /* @__PURE__ */ React.createElement(Text, { style: styles.modelEyebrow }, provider === "groq" ? "GROQ \xB7 PLANO FREE" : "OPENROUTER \xB7 SOMENTE GRATUITOS"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelTitle }, provider === "groq" ? "Qwen 3.8 27B" : "Free Models Router"), /* @__PURE__ */ React.createElement(Text, { style: styles.modelId }, DEFAULT_MODELS[provider]))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Use uma chave do plano Free da Groq. Limite publicado: 1.000 requisi\xE7\xF5es/dia, 30/min, sujeito tamb\xE9m a cotas de tokens. Contas pagas podem cobrar pelo uso." : "Roteamento somente para modelos gratuitos, sem troca para modelos pagos. Limite padr\xE3o: 50 requisi\xE7\xF5es/dia, 20/min."), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, provider === "groq" ? "Crie sua chave em console.groq.com/keys" : "Crie sua chave em openrouter.ai/keys")), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.modelSection }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Modelo de tradu\xE7\xE3o"), /* @__PURE__ */ React.createElement(
       Pressable,
       {
         style: [styles.modelTrigger, catalogOpen && styles.modelTriggerOpen],
@@ -1141,7 +1184,7 @@ var __plugin = (() => {
       ["Mensagens em cache", stats2.cachedMessages],
       ["Erros", stats2.errors]
     ];
-    return /* @__PURE__ */ React.createElement(Section, { title: "Estat\xEDsticas da sess\xE3o" }, metrics.map(([label, value]) => /* @__PURE__ */ React.createElement(View, { style: styles.listRow, key: label }, /* @__PURE__ */ React.createElement(Text, { style: styles.listName }, label), /* @__PURE__ */ React.createElement(Text, { style: styles.metric }, value))));
+    return /* @__PURE__ */ React.createElement(Section, { title: "Estat\xEDsticas da sess\xE3o" }, metrics.map(([label, value]) => /* @__PURE__ */ React.createElement(View, { style: styles.statRow, key: label }, /* @__PURE__ */ React.createElement(Text, { style: styles.statLabel }, label), /* @__PURE__ */ React.createElement(Text, { style: styles.statValue }, String(value)))));
   }
   __name(Statistics, "Statistics");
   function Settings(props) {
@@ -1154,7 +1197,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R29"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R30"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1201,6 +1244,9 @@ var __plugin = (() => {
       listName: { flex: 1, color: colors.text, marginRight: 10 },
       remove: { color: colors.danger, fontWeight: "800" },
       metric: { color: colors.text, fontSize: 18, fontWeight: "900" },
+      statRow: { flexDirection: "column", alignItems: "stretch", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.outline },
+      statLabel: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: 4 },
+      statValue: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
       modelSection: { marginBottom: 14 },
       modelTrigger: { ...edge, borderColor: colors.outline, backgroundColor: colors.input, flexDirection: "row", alignItems: "center", padding: 12, minHeight: 70 },
       modelTriggerOpen: { borderColor: colors.accent },
@@ -1282,7 +1328,7 @@ var __plugin = (() => {
     }, 0);
   }
   __name(notifyStats, "notifyStats");
-  function translate(text, targetLang, signal) {
+  function translate(text, targetLang, signal, outgoing = false) {
     const provider = storage2.provider;
     const sessionStats = stats;
     let started = false;
@@ -1292,6 +1338,8 @@ var __plugin = (() => {
       apiKey: storage2.apiKeys[provider] ?? "",
       model: provider === "deepl" ? void 0 : storage2.models[provider],
       customEndpoint: storage2.customEndpoint,
+      cloudflareAccountId: storage2.cloudflareAccountId,
+      sourceLang: outgoing ? storage2.cloudflareOutgoingSource : storage2.cloudflareIncomingSource,
       signal,
       onRequest: /* @__PURE__ */ __name(() => {
         sessionStats.apiStatus = "Solicita\xE7\xE3o em andamento";
@@ -1318,7 +1366,7 @@ var __plugin = (() => {
   }
   __name(translate, "translate");
   function cacheKey(id) {
-    return id + ":" + storage2.provider + ":" + storage2.targetLang + ":" + (storage2.provider === "deepl" ? "" : storage2.models[storage2.provider]);
+    return id + ":" + storage2.provider + ":" + storage2.targetLang + ":" + (storage2.provider === "deepl" ? "" : storage2.models[storage2.provider]) + (storage2.provider === "cloudflare" ? ":" + storage2.cloudflareIncomingSource + ":" + storage2.cloudflareAccountId : "");
   }
   __name(cacheKey, "cacheKey");
   function removeCached(key) {
@@ -1490,7 +1538,7 @@ var __plugin = (() => {
     const pause = translationPause(storage2.provider, model);
     if (pause) return;
     for (const id of Array.from(queue)) {
-      if (inFlight.size >= (["gemini", "groq", "openrouter-free"].includes(storage2.provider) ? 1 : MAX_INFLIGHT)) break;
+      if (inFlight.size >= (["gemini", "groq", "openrouter-free", "cloudflare"].includes(storage2.provider) ? 1 : MAX_INFLIGHT)) break;
       if (inFlight.has(cacheKey(id))) continue;
       queue.delete(id);
       startTranslation(id, controller, session);
@@ -1660,7 +1708,7 @@ var __plugin = (() => {
     const controller = outgoingController;
     if (!controller) return send(source);
     const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage2.outgoingLang;
-    return translate(source, target, controller.signal).catch(() => {
+    return translate(source, target, controller.signal, true).catch(() => {
       if (!controller.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
       return source;
     }).then(send);

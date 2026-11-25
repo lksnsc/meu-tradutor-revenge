@@ -20,6 +20,76 @@ const vendettaRuntime = {
     }));
 
     builder.onLoad({ filter: /.*/, namespace: "vendetta-runtime" }, ({ path }) => {
+      // Revenge can expose lazy proxies that resolve to the wrong Metro module.
+      // Resolve React and React Native by their actual public capabilities.
+      if (path === "@vendetta/metro/common") {
+        return { loader: "js", contents: `
+          const metro = vendetta.metro;
+          const common = metro.common;
+          const reactKeys = ["createElement", "useState", "useEffect", "useReducer"];
+          const nativeKeys = ["View", "Text", "ScrollView", "TextInput", "Pressable", "Switch"];
+          const isReact = value => reactKeys.every(key => typeof value?.[key] === "function");
+          const isNative = value => nativeKeys.every(key => {
+            const component = value?.[key];
+            return typeof component === "function" || (component !== null && typeof component === "object");
+          });
+          function select(check, candidates) {
+            for (const candidate of candidates) {
+              try {
+                const value = candidate();
+                if (check(value)) return value;
+                if (check(value?.default)) return value.default;
+              } catch {}
+            }
+          }
+          function search(check, keys, candidates) {
+            const direct = select(check, [
+              () => metro.findByProps(...keys),
+              ...candidates
+            ]);
+            if (direct) return direct;
+            try {
+              const matches = metro.findByPropsAll?.(...keys) || [];
+              return select(check, Array.from(matches, value => () => value));
+            } catch {}
+          }
+          const React = search(isReact, reactKeys, [
+            () => common.React, () => globalThis.React
+          ]);
+          const ReactNative = search(isNative, ["AppRegistry", ...nativeKeys], [
+            () => metro.findByProps(...nativeKeys),
+            () => common.ReactNative, () => globalThis.ReactNative,
+            () => vendetta.ui?.components?.General
+          ]);
+          if (!React) throw new Error("Meu Tradutor: módulo React incompatível com esta versão do Discord.");
+          if (!ReactNative) throw new Error("Meu Tradutor: componentes React Native não encontrados.");
+          module.exports = { React, ReactNative, FluxDispatcher: common.FluxDispatcher };
+        ` };
+      }
+      if (path === "@vendetta/storage") {
+        return { loader: "js", contents: `
+          const { React } = require("@vendetta/metro/common");
+          function useProxy(storage) {
+            const [, redraw] = React.useState(0);
+            React.useEffect(() => {
+              const refresh = () => redraw(value => value + 1);
+              const emitter = storage?.[Symbol.for("vendetta.storage.emitter")];
+              if (typeof emitter?.on === "function" && typeof emitter?.off === "function") {
+                emitter.on("SET", refresh);
+                emitter.on("DEL", refresh);
+                return () => {
+                  emitter.off("SET", refresh);
+                  emitter.off("DEL", refresh);
+                };
+              }
+              const timer = setInterval(refresh, 500);
+              return () => clearInterval(timer);
+            }, [storage]);
+            return storage;
+          }
+          module.exports = { useProxy };
+        ` };
+      }
       const segments = path.split("/").slice(1);
       const globalPath = segments.reduce((base, key) => {
         return /^[a-z_$][\w$]*$/i.test(key) ? base + "." + key : base + "[" + JSON.stringify(key) + "]";
@@ -45,6 +115,35 @@ await build({
   footer: { js: "return __plugin; })()" },
   plugins: [vendettaRuntime],
 });
+
+// Exercise the compiled settings against a broken legacy proxy and a valid Metro fallback.
+const mockReact = {
+  createElement: (component, props, ...children) => ({ component, props: { ...props, children } }),
+  useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
+  useEffect: () => {},
+  useReducer: () => [0, () => {}],
+};
+const mockNative = Object.fromEntries(["AppRegistry", "View", "Text", "ScrollView", "TextInput", "Pressable", "Switch"].map(key => [key, () => null]));
+const mockVendetta = {
+  metro: {
+    common: { React: { useState: mockReact.useState }, ReactNative: { AppRegistry: {} } },
+    findByProps: (...keys) => [mockReact, mockNative].find(module => keys.every(key => key in module)),
+    findByName: () => undefined,
+    findByStoreName: () => undefined,
+  },
+  plugin: { storage: {} },
+  patcher: {},
+  ui: { toasts: { showToast: () => {} } },
+  storage: {},
+};
+const code = await readFile(bundle, "utf8");
+const testedPlugin = new Function("vendetta", "return " + code)(mockVendetta).default;
+testedPlugin.onLoad();
+const settingsRoot = testedPlugin.settings();
+const renderedSettings = settingsRoot.component(settingsRoot.props);
+if (renderedSettings.component !== mockNative.View) throw new Error("Falha no teste da interface de configuração.");
+testedPlugin.onUnload();
+console.log("Teste de renderização com API legada incompatível: aprovado.");
 
 const manifest = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));
 manifest.main = "index.js";

@@ -361,13 +361,22 @@ function ProviderFields({
     } finally { setLoading(false); }
   };
   const matchingModels = Object.keys(catalog).filter(id => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
-  const testApi = async () => {
+  const testApi = async (activate = false) => {
     if (testing) return;
     setTesting(true);
     setTestResult("Consultando o provedor...");
     try {
       const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
-      setTestResult("Resposta da API: " + result);
+      if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo não traduziu a frase de teste.");
+      if (activate) {
+        storage.apiKeys = { ...storage.apiKeys, [provider]: apiKey.trim() };
+        if (provider !== "deepl") storage.models = { ...storage.models, [provider]: model.trim() };
+        if (provider === "custom") storage.customEndpoint = endpoint.trim();
+        storage.provider = provider;
+        storage.autoTranslate = true;
+        onIncomingChange(true);
+      }
+      setTestResult("Resposta da API: " + result + (activate ? " · Configuração salva e tradução automática ativada. Os filtros atuais foram mantidos." : ""));
     } catch (error) {
       setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
     } finally { setTesting(false); }
@@ -380,8 +389,8 @@ function ProviderFields({
     if (nextKey !== (storage.apiKeys[provider] ?? "")
       || nextModel !== savedModel
       || (provider === "custom" && nextEndpoint !== storage.customEndpoint)) {
-      storage.apiKeys[provider] = nextKey;
-      if (provider !== "deepl") storage.models[provider] = nextModel;
+      storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
+      if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
       if (provider === "custom") storage.customEndpoint = nextEndpoint;
       onIncomingChange(true);
     }
@@ -425,7 +434,8 @@ function ProviderFields({
       )}
       <Button label="Salvar API" onPress={save} />
       <Button label={testing ? "Testando..." : "Testar API agora"} onPress={() => { void testApi(); }} />
-      <Text style={styles.hint}>O teste envia apenas uma frase de exemplo, não mensagens do Discord. Pode consumir cota da API.</Text>
+      <Button label={testing ? "Testando..." : "Testar, salvar e ativar tradução"} onPress={() => { void testApi(true); }} />
+      <Text style={styles.hint}>O teste envia apenas uma frase de exemplo. Ao escolher ativar, o texto dos chats permitidos pelos filtros será enviado ao provedor configurado. Pode consumir cota da API.</Text>
       {!!testResult && <Text style={styles.text}>{testResult}</Text>}
     </View>
   );
@@ -460,6 +470,9 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
   }, [readStats, subscribeStats]);
 
   const metrics = [
+    ["Tradução automática", stats.enabled ? "ATIVADA" : "DESATIVADA"],
+    ["Provedor / modelo salvo", stats.providerModel],
+    ["Mensagens aguardando tradução", stats.queued],
     ["Motor de recebimento", stats.incomingStatus],
     ["Motor de envio", stats.outgoingStatus],
     ["Eventos de exibição capturados", stats.observed],

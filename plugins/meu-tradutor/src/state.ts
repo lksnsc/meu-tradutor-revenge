@@ -100,6 +100,9 @@ export function shouldTranslateChannel(channelId?: string, isOutgoing = false): 
 }
 
 export interface Stats {
+  queued: number;
+  enabled: boolean;
+  providerModel: string;
   observed: number;
   rendered: number;
   incomingStatus: string;

@@ -4,7 +4,7 @@ import { instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
-import { hasTranslatableText, translateText, translationPause, type LangCode } from "./translator";
+import { hasTranslatableText, translateText, translationPause, TranslationRequestError, type LangCode } from "./translator";
 
 interface MessageRow {
   rowType?: number;
@@ -31,11 +31,12 @@ const visibleMessages = new Map<string, ObservedMessage>();
 const translationCache = new Map<string, string>();
 const cacheSources = new Map<string, string>();
 const failed = new Map<string, string>();
+const retries = new Map<string, number>();
 const inFlight = new Set<string>();
 const queue = new Set<string>();
 const pendingRenders = new Set<string>();
 const statsListeners = new Set<(stats: Stats) => void>();
-const emptyStats: Stats = { observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+const emptyStats: Stats = { queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
 
 let stats = { ...emptyStats };
 let statsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -59,7 +60,7 @@ function notifyUser(message: string): void {
 function readStats(): Stats {
   const model = storage.provider === "deepl" ? undefined : storage.models?.[storage.provider];
   const pause = translationPause(storage.provider, model);
-  return { ...stats, cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1000) + " s." : stats.lastError };
+  return { ...stats, queued: queue.size, enabled: storage.autoTranslate, providerModel: storage.provider + (model ? " / " + model : ""), cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1000) + " s." : stats.lastError };
 }
 
 function subscribeStats(listener: (value: Stats) => void): () => void {
@@ -128,13 +129,16 @@ function getCached(key: string, source: string): string | undefined {
   return translationCache.get(key);
 }
 
-function dispatchMessage(original: Message): void {
+function dispatchMessage(original: Message, verify?: { id: string; channelId: string; expected: string }): void {
   try {
     const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
-    void Promise.resolve(dispatched).catch(error => { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); });
-  } catch {
-    // Algumas versões rejeitam atualizações locais durante uma troca de canal.
-  }
+    void Promise.resolve(dispatched).then(() => {
+      if (!verify || !outgoingController) return;
+      const observed = visibleMessages.get(verify.id);
+      const current = stores.messages?.getMessage(verify.channelId, verify.id);
+      if (current?.content === verify.expected && observed && !observed.translated) { observed.translated = true; stats.rendered++; notifyStats(); }
+    }).catch(error => { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); });
+  } catch (error) { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); }
 }
 
 function readOriginal(channelId: string, id: string, fallback?: Message): Message | undefined {
@@ -176,7 +180,7 @@ function scheduleRender(id: string): void {
         if (current && current.content === original.content) {
           if (appliedLocally.size < MAX_CACHED || appliedLocally.has(messageId)) {
             appliedLocally.set(messageId, { original, translated: cached, channelId: observed.channelId });
-            dispatchMessage({ ...current, content: cached, channel_id: observed.channelId });
+            dispatchMessage({ ...current, content: cached, channel_id: observed.channelId }, { id: messageId, channelId: observed.channelId, expected: cached });
           }
         } else if (!current) {
           dispatchMessage(original);
@@ -212,10 +216,19 @@ function startTranslation(id: string, controller: AbortController, session: Abor
     if (controller.signal.aborted || !current || current.source !== source
       || (currentOriginal && currentOriginal.content !== source)
       || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
+    retries.delete(key);
+    stats.lastError = "";
     cacheTranslation(key, source, translated);
     if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
-  }).catch(() => {
+  }).catch((error: unknown) => {
     if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
+      const temporary = (error instanceof TranslationRequestError && (error.status === 429 || error.status === 503)) || !!translationPause(storage.provider, storage.provider === "deepl" ? undefined : storage.models[storage.provider]);
+      const attempt = retries.get(key) ?? 0;
+      if (temporary && attempt < 2) {
+        retries.set(key, attempt + 1);
+        queue.add(id);
+        return;
+      }
       if (failed.size >= MAX_CACHED) {
         const oldest = failed.keys().next().value;
         if (oldest !== undefined) failed.delete(oldest);
@@ -297,6 +310,7 @@ function interceptRow(args: [MessageRow?, ...unknown[]], original: (...args: [Me
 function scanSelectedChannel(): void {
   if (!outgoingController || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
   try {
+    if (!stores.selectedChannel || !stores.messages?.getMessages) findStores();
     const channelId = stores.selectedChannel?.getChannelId();
     if (!channelId || !shouldTranslateChannel(channelId)) return;
     const raw = stores.messages?.getMessages?.(channelId) as { toArray?(): unknown; _array?: unknown; messages?: unknown; getMessages?(): unknown; } | undefined;
@@ -312,6 +326,7 @@ function scanSelectedChannel(): void {
     pumpQueue();
     notifyStats();
   } catch (error) { stats.lastError = "Histórico local: " + describeError(error); notifyStats(); }
+  finally { pumpQueue(); }
 }
 
 function refreshIncoming(resetCache = false): void {
@@ -321,6 +336,7 @@ function refreshIncoming(resetCache = false): void {
   incomingController = new AbortController();
   queue.clear();
   failed.clear();
+  retries.clear();
 
   if (resetCache) {
     translationCache.clear();
@@ -477,6 +493,7 @@ function onUnload(): void {
   translationCache.clear();
   cacheSources.clear();
   failed.clear();
+  retries.clear();
   queue.clear();
   inFlight.clear();
   pendingRenders.clear();

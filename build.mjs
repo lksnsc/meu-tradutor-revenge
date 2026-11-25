@@ -291,7 +291,17 @@ globalThis.fetch = async () => { quotaRequests++; return { ok: false, status: 42
 testedPlugin.onLoad();
 await new Promise(resolve => setTimeout(resolve, 100));
 if (quotaRequests !== 1) throw new Error("O controle de cota não interrompeu a fila: " + quotaRequests);
+const realNow = Date.now;
+const future = realNow() + 61000;
+Date.now = () => future;
+let resumed = 0;
+globalThis.fetch = async (url, init) => { resumed++; const input = JSON.parse(init.body).contents[0].parts[0].text; return { ok: true, json: async () => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: input === "Good night" ? "Boa noite" : "Bom dia" }] } }] }) }; };
+rowManager.generate({ rowType: 1, message: sampleMessage });
+await new Promise(resolve => setTimeout(resolve, 100));
+Date.now = realNow;
+if (resumed !== 2 || currentMessage.content !== "Bom dia" || currentSecond.content !== "Boa noite") throw new Error("A fila não retomou as mensagens após a pausa: " + resumed);
 testedPlugin.onUnload();
+console.log("POLYZILLA: recuperação do histórico após HTTP 429 aprovada.");
 globalThis.fetch = realFetch;
 console.log("POLYZILLA: bloqueio de fila após HTTP 429 aprovado.");
 console.log("POLYZILLA: captura, tradução simulada, aplicação local e restauração aprovadas.");

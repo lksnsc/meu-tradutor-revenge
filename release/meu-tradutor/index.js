@@ -435,7 +435,6 @@ var __plugin = (() => {
     storage2.customEndpoint ?? (storage2.customEndpoint = "");
     storage2.apiKeys ?? (storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
     storage2.models ?? (storage2.models = { ...DEFAULT_MODELS });
-    if (storage2.models.gemini === "gemini-2.5-flash") storage2.models.gemini = DEFAULT_MODELS.gemini;
   }
   __name(initializeSettings, "initializeSettings");
   function findStore(name, method) {
@@ -683,6 +682,50 @@ var __plugin = (() => {
     ));
   }
   __name(ApiInput, "ApiInput");
+  var GEMINI_MODEL_CHOICES = {
+    "gemini-4-hydrogen": "Gemini 4 Hydrogen",
+    "gemini-4-neon": "Gemini 4 Neon",
+    "gemini-4-carbon": "Gemini 4 Carbon",
+    "gemini-4-argon": "Gemini 4 Argon",
+    "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+    "gemini-3.8-flash": "Gemini 3.8 Flash",
+    "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite",
+    "gemini-2.5-flash": "Gemini 2.5 Flash (legado)",
+    "gemini-2.5-pro": "Gemini 2.5 Pro (legado)"
+  };
+  async function loadGeminiModels(key) {
+    if (!key.trim()) throw new Error("Informe sua chave de API Gemini.");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3e4);
+    const models = {};
+    const tokens = /* @__PURE__ */ new Set();
+    let token = "";
+    try {
+      do {
+        const url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000" + (token ? "&pageToken=" + encodeURIComponent(token) : "");
+        const response = await fetch(url, {
+          headers: { "x-goog-api-key": key.trim() },
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error("Google retornou HTTP " + response.status + " ao listar modelos.");
+        const page = await response.json();
+        for (const item of page.models ?? []) {
+          const id = item.name?.replace(/^models\//, "") ?? "";
+          if (!/^(gemini|gemma)-[a-z0-9._-]+$/i.test(id)) continue;
+          if (!item.supportedGenerationMethods?.includes("generateContent")) continue;
+          if (/(?:^|[-_.])(image|tts|audio|live|embedding|robotics|computer-use)(?:$|[-_.])/i.test(id)) continue;
+          models[id] = item.displayName || id;
+        }
+        token = page.nextPageToken ?? "";
+        if (token && tokens.has(token)) throw new Error("O Google repetiu o token de pagina\xE7\xE3o.");
+        if (token) tokens.add(token);
+      } while (token);
+      return models;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  __name(loadGeminiModels, "loadGeminiModels");
   function ProviderFields({
     provider,
     onIncomingChange
@@ -704,6 +747,37 @@ var __plugin = (() => {
     const testingState = React.useState(false);
     const testing = testingState[0];
     const setTesting = testingState[1];
+    const catalogState = React.useState(GEMINI_MODEL_CHOICES);
+    const catalog = catalogState[0];
+    const setCatalog = catalogState[1];
+    const catalogStatusState = React.useState("Cat\xE1logo inicial \xB7 consulte a API para atualizar.");
+    const catalogStatus = catalogStatusState[0];
+    const setCatalogStatus = catalogStatusState[1];
+    const catalogOpenState = React.useState(false);
+    const catalogOpen = catalogOpenState[0];
+    const setCatalogOpen = catalogOpenState[1];
+    const loadingState = React.useState(false);
+    const loading = loadingState[0];
+    const setLoading = loadingState[1];
+    const searchState = React.useState("");
+    const query = searchState[0];
+    const setQuery = searchState[1];
+    const refreshCatalog = /* @__PURE__ */ __name(async () => {
+      if (loading) return;
+      setLoading(true);
+      setCatalogStatus("Consultando cat\xE1logo do Google...");
+      try {
+        const result = await loadGeminiModels(apiKey);
+        setCatalog(result);
+        setCatalogOpen(true);
+        setCatalogStatus(Object.keys(result).length + " modelos encontrados. Teste o modelo escolhido para verificar acesso e cota.");
+      } catch (error) {
+        setCatalogStatus("Falha na consulta: " + (error instanceof Error ? error.message : String(error)));
+      } finally {
+        setLoading(false);
+      }
+    }, "refreshCatalog");
+    const matchingModels = Object.keys(catalog).filter((id) => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
     const testApi = /* @__PURE__ */ __name(async () => {
       if (testing) return;
       setTesting(true);
@@ -746,7 +820,24 @@ var __plugin = (() => {
         onChange: setModel,
         placeholder: DEFAULT_MODELS[provider] || "Nome do modelo"
       }
-    ), provider === "custom" && /* @__PURE__ */ React.createElement(
+    ), provider === "gemini" && /* @__PURE__ */ React.createElement(View, { style: styles.field }, /* @__PURE__ */ React.createElement(Text, { style: styles.label }, "Cat\xE1logo de modelos Gemini"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, catalogStatus), /* @__PURE__ */ React.createElement(Button, { label: catalogOpen ? "Recolher modelos" : "Escolher modelo", onPress: () => setCatalogOpen(!catalogOpen) }), /* @__PURE__ */ React.createElement(Button, { label: loading ? "Consultando..." : "Atualizar lista pela API", onPress: () => {
+      void refreshCatalog();
+    } }), catalogOpen && /* @__PURE__ */ React.createElement(View, null, /* @__PURE__ */ React.createElement(ApiInput, { label: "Pesquisar modelo", value: query, onChange: setQuery, placeholder: "Gemini 4, Flash, Gemma..." }), matchingModels.length === 0 && /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Nenhum modelo encontrado."), matchingModels.map((id) => /* @__PURE__ */ React.createElement(
+      Pressable,
+      {
+        key: id,
+        style: [styles.option, model === id && styles.selected],
+        accessibilityRole: "button",
+        accessibilityState: { selected: model === id },
+        onPress: () => {
+          setModel(id);
+          setCatalogOpen(false);
+          setTestResult("");
+        }
+      },
+      /* @__PURE__ */ React.createElement(Text, { style: [styles.optionText, model === id && styles.selectedText] }, catalog[id]),
+      /* @__PURE__ */ React.createElement(Text, { style: [styles.hint, model === id && styles.selectedText] }, id)
+    ))), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "Modelos de texto compat\xEDveis com generateContent. O cat\xE1logo n\xE3o garante acesso ou gratuidade; use Testar API agora e depois Salvar API. Voc\xEA tamb\xE9m pode informar o ID manualmente.")), provider === "custom" && /* @__PURE__ */ React.createElement(
       ApiInput,
       {
         label: "Endpoint compat\xEDvel com OpenAI",

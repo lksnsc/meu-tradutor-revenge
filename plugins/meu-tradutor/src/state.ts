@@ -57,6 +57,7 @@ export function initializeSettings(): void {
   storage.customEndpoint ??= "";
   storage.apiKeys ??= { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" };
   storage.models ??= { ...DEFAULT_MODELS };
+  if (storage.models.gemini === "gemini-2.5-flash") storage.models.gemini = DEFAULT_MODELS.gemini;
 }
 
 function findStore<T>(name: string, method: string): T | undefined {
@@ -93,6 +94,11 @@ export function shouldTranslateChannel(channelId?: string, isOutgoing = false): 
 }
 
 export interface Stats {
+  observed: number;
+  rendered: number;
+  incomingStatus: string;
+  outgoingStatus: string;
+  lastError: string;
   apiCalls: number;
   pending: number;
   cacheHits: number;

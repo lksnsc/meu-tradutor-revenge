@@ -35,7 +35,7 @@ const inFlight = new Set<string>();
 const queue = new Set<string>();
 const pendingRenders = new Set<string>();
 const statsListeners = new Set<(stats: Stats) => void>();
-const emptyStats: Stats = { apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+const emptyStats: Stats = { observed: 0, rendered: 0, incomingStatus: "Aguardando conexão", outgoingStatus: "Aguardando conexão", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
 
 let stats = { ...emptyStats };
 let statsTimer: ReturnType<typeof setTimeout> | undefined;
@@ -91,7 +91,7 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
       notifyStats();
     },
   }).catch((error: unknown) => {
-    if (!signal.aborted) sessionStats.errors++;
+    if (!signal.aborted) { sessionStats.errors++; sessionStats.lastError = describeError(error); }
     throw error;
   }).finally(() => {
     if (started) sessionStats.pending--;
@@ -208,6 +208,8 @@ function pumpQueue(): void {
 }
 
 function interceptRow(args: [MessageRow?, ...unknown[]]): void {
+  stats.observed++;
+  notifyStats();
   const row = args[0];
   const rowMessage = row?.message;
   if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
@@ -244,6 +246,8 @@ function interceptRow(args: [MessageRow?, ...unknown[]]): void {
     if (cached !== observed.source) {
       args[0] = { ...row, message: { ...message, content: cached } };
       observed.translated = true;
+      stats.rendered++;
+      notifyStats();
     }
     return;
   }
@@ -366,7 +370,8 @@ function installHooks(attempt: number): void {
       const undo = before("generate", prototype, interceptRow);
       if (typeof undo !== "function") throw new Error("patcher.before não retornou função de remoção");
       unpatchRowManager = undo;
-    } catch (error) { incomingError = describeError(error); }
+      stats.incomingStatus = "Interceptação instalada";
+    } catch (error) { incomingError = describeError(error); stats.incomingStatus = incomingError; }
   }
   if (!unpatchSendMessage) {
     try {
@@ -375,8 +380,10 @@ function installHooks(attempt: number): void {
       const undo = instead("sendMessage", actions, interceptSend);
       if (typeof undo !== "function") throw new Error("patcher.instead não retornou função de remoção");
       unpatchSendMessage = undo;
-    } catch (error) { outgoingError = describeError(error); }
+      stats.outgoingStatus = "Interceptação instalada";
+    } catch (error) { outgoingError = describeError(error); stats.outgoingStatus = outgoingError; }
   }
+  notifyStats();
   if (unpatchRowManager && unpatchSendMessage) return;
   if (attempt < 3) {
     hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);

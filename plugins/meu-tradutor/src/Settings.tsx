@@ -2,7 +2,7 @@ import { React, ReactNative } from "@vendetta/metro/common";
 import { useProxy } from "@vendetta/storage";
 import { showToast } from "@vendetta/ui/toasts";
 import { storage, stores, type FilterMode, type Stats } from "./state";
-import { DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
+import { translateText, DEFAULT_MODELS, LANG_NAMES, PROVIDER_NAMES, type LangCode, type ProviderId } from "./translator";
 
 const { View, Text, ScrollView, Pressable, TextInput, Switch } = ReactNative;
 
@@ -275,6 +275,23 @@ function ProviderFields({
   const endpointState = React.useState(storage.customEndpoint);
   const endpoint = endpointState[0];
   const setEndpoint = endpointState[1];
+  const testState = React.useState("");
+  const testResult = testState[0];
+  const setTestResult = testState[1];
+  const testingState = React.useState(false);
+  const testing = testingState[0];
+  const setTesting = testingState[1];
+  const testApi = async () => {
+    if (testing) return;
+    setTesting(true);
+    setTestResult("Consultando o provedor...");
+    try {
+      const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
+      setTestResult("Resposta da API: " + result);
+    } catch (error) {
+      setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setTesting(false); }
+  };
 
   const save = () => {
     const nextKey = apiKey.trim();
@@ -304,6 +321,9 @@ function ProviderFields({
           placeholder="https://exemplo.com/v1/chat/completions" url />
       )}
       <Button label="Salvar API" onPress={save} />
+      <Button label={testing ? "Testando..." : "Testar API agora"} onPress={() => { void testApi(); }} />
+      <Text style={styles.hint}>O teste envia apenas uma frase de exemplo, não mensagens do Discord. Pode consumir cota da API.</Text>
+      {!!testResult && <Text style={styles.text}>{testResult}</Text>}
     </View>
   );
 }
@@ -337,6 +357,11 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
   }, [readStats, subscribeStats]);
 
   const metrics = [
+    ["Motor de recebimento", stats.incomingStatus],
+    ["Motor de envio", stats.outgoingStatus],
+    ["Eventos de exibição capturados", stats.observed],
+    ["Traduções aplicadas na tela", stats.rendered],
+    ["Último erro da tradução", stats.lastError || "Nenhum registrado"],
     ["Chamadas à API", stats.apiCalls],
     ["Requisições em andamento", stats.pending],
     ["Leituras do cache", stats.cacheHits],
@@ -367,6 +392,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
+        <Text style={styles.hint}>by NSC</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>

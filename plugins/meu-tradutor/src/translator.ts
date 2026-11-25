@@ -13,7 +13,7 @@ export interface TranslatorConfig {
 }
 
 export const DEFAULT_MODELS: Record<ModelProvider, string> = {
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.5-flash-lite",
   openai: "gpt-4o-mini",
   deepseek: "deepseek-chat",
   openrouter: "google/gemini-2.5-flash",
@@ -41,7 +41,7 @@ const CHAT_ENDPOINTS = {
   openrouter: "https://openrouter.ai/api/v1/chat/completions",
 };
 
-const REQUEST_TIMEOUT = 15_000;
+const REQUEST_TIMEOUT = 30_000;
 
 // A ordem prioriza código e destinos de links antes dos delimitadores de Markdown.
 const discordToken = /(\x60{3,})(?!\x60)[\s\S]*?(?:\1(?!\x60)|(?![\s\S]))|(\x60{1,2})(?!\x60)[^\r\n]*?\2(?!\x60)|<(?:(?:@!?|@&|#)\d+|a?:[\w-]+:\d+|t:-?\d+(?::[tTdDfFR])?|\/[^>:\r\n]+:\d+|(?:https?:\/\/|discord:\/\/)[^\s<>]+)>|(?:@everyone|@here)\b|(?:\]\()(?:\\.|[^()\r\n\\]|\([^()\r\n]*\))+\)|(?:https?:\/\/|discord:\/\/|www\.)(?:[^<>\s\x60\[\]()*|]|\([^()<>\s\x60]+\))*(?:[^<>\s\x60\[\]()*|.,!?:;]|\([^()<>\s\x60]+\))|^[ \t]*(?:#{1,3}|>>>?|[-+*]|\d+[.)])(?=[ \t])[ \t]+|[ \t]*\r?\n[ \t]*|\\[\\*_~|\x60[\]()#!+.\->]|[*_~|]+|[\[\]]/gim;

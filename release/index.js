@@ -370,122 +370,162 @@ var __plugin = (() => {
     return new TranslationRequestError(parts.join(" "), status);
   }
   __name(requestFailure, "requestFailure");
-  async function postJson(url, headers, body, config) {
-    const controller = new AbortController();
-    let rejectInterrupted;
-    const interrupted = new Promise((_, reject) => {
-      rejectInterrupted = reject;
-    });
-    const cancel = /* @__PURE__ */ __name(() => {
-      rejectInterrupted(new TranslationRequestError("Tradu\xE7\xE3o cancelada."));
-      controller.abort();
-    }, "cancel");
-    config.signal?.addEventListener("abort", cancel);
-    let timer;
-    try {
-      if (config.signal?.aborted) throw new Error("Tradu\xE7\xE3o cancelada.");
-      config.onRequest?.();
-      const request = /* @__PURE__ */ __name(async () => {
-        const response = await fetch(url, {
+  function postJson(url, headers, body, config) {
+    return new Promise(/* @__PURE__ */ __name(function requestExecutor(resolve, reject) {
+      const controller = new AbortController();
+      let finished = false;
+      let timer;
+      function cleanup() {
+        if (timer !== void 0) clearTimeout(timer);
+        config.signal?.removeEventListener("abort", cancel);
+      }
+      __name(cleanup, "cleanup");
+      function fail(error) {
+        if (finished) return;
+        finished = true;
+        cleanup();
+        reject(error instanceof TranslationRequestError ? error : new TranslationRequestError("Falha de rede ao acessar " + PROVIDER_NAMES[config.provider] + "."));
+      }
+      __name(fail, "fail");
+      function succeed(value) {
+        if (finished) return;
+        if (!value || typeof value !== "object") {
+          fail(new TranslationRequestError("O provedor retornou uma resposta JSON inv\xE1lida."));
+          return;
+        }
+        finished = true;
+        cleanup();
+        resolve(value);
+      }
+      __name(succeed, "succeed");
+      function cancel() {
+        fail(new TranslationRequestError("Tradu\xE7\xE3o cancelada."));
+        controller.abort();
+      }
+      __name(cancel, "cancel");
+      if (config.signal?.aborted) {
+        cancel();
+        return;
+      }
+      config.signal?.addEventListener("abort", cancel);
+      timer = setTimeout(/* @__PURE__ */ __name(function requestTimeout() {
+        fail(new TranslationRequestError("Tempo limite de tradu\xE7\xE3o excedido."));
+        controller.abort();
+      }, "requestTimeout"), REQUEST_TIMEOUT);
+      try {
+        config.onRequest?.();
+        fetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...headers },
           body: JSON.stringify(body),
           signal: controller.signal
-        });
-        if (!response.ok) {
-          throw await requestFailure(response, config);
-        }
-        try {
-          return await response.json();
-        } catch {
-          throw new TranslationRequestError("O provedor retornou uma resposta inv\xE1lida.");
-        }
-      }, "request");
-      timer = setTimeout(() => {
-        rejectInterrupted(new TranslationRequestError("Tempo limite de tradu\xE7\xE3o excedido."));
-        controller.abort();
-      }, REQUEST_TIMEOUT);
-      return await Promise.race([request(), interrupted]);
-    } catch (error) {
-      if (error instanceof TranslationRequestError) throw error;
-      if (config.signal?.aborted) throw new Error("Tradu\xE7\xE3o cancelada.");
-      throw new Error("Falha de rede ao acessar " + PROVIDER_NAMES[config.provider] + ".");
-    } finally {
-      if (timer !== void 0) clearTimeout(timer);
-      config.signal?.removeEventListener("abort", cancel);
-    }
+        }).then(/* @__PURE__ */ __name(function receiveResponse(response) {
+          if (finished) return;
+          if (!response || typeof response.ok !== "boolean") {
+            fail(new TranslationRequestError("Resposta HTTP indispon\xEDvel."));
+            return;
+          }
+          config.onResponse?.(response.status);
+          if (!response.ok) {
+            requestFailure(response, config).then(/* @__PURE__ */ __name(function rejectHttp(error) {
+              fail(error instanceof TranslationRequestError ? error : new TranslationRequestError(PROVIDER_NAMES[config.provider] + " retornou HTTP " + response.status + ".", response.status));
+            }, "rejectHttp"), fail);
+            return;
+          }
+          response.json().then(succeed, /* @__PURE__ */ __name(function invalidJson() {
+            fail(new TranslationRequestError("O provedor retornou uma resposta inv\xE1lida."));
+          }, "invalidJson"));
+        }, "receiveResponse"), fail).catch(fail);
+      } catch (error) {
+        fail(error);
+      }
+    }, "requestExecutor"));
   }
   __name(postJson, "postJson");
-  async function translateText(text, config) {
-    if (typeof text !== "string") throw new Error("Texto de tradu\xE7\xE3o inv\xE1lido.");
-    const { provider, targetLang } = config;
-    const apiKey = cleanString(config.apiKey);
-    if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
-    if (!hasTranslatableText(text)) return text;
-    const pause = translationPause(provider, config.model);
-    if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s.");
-    const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
-    const protectedText = protect(text, useXml);
-    let translated;
-    if (provider === "deepl") {
-      const endpoint = apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
-      const response = await postJson(endpoint + "/v2/translate", { Authorization: "DeepL-Auth-Key " + apiKey }, {
-        text: [protectedText.text],
-        target_lang: targetLang === "EN" ? "EN-US" : targetLang,
-        ...useXml && {
-          tag_handling: "xml",
-          ignore_tags: ["keep"],
-          non_splitting_tags: ["keep"],
-          split_sentences: "nonewlines"
-        }
-      }, config);
-      const entry = response?.translations?.[0];
-      if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
-      translated = entry?.text;
-    } else {
-      const model = cleanString(config.model) || DEFAULT_MODELS[provider];
-      if (!model) throw new Error("Informe o modelo do provedor personalizado.");
-      const instructions = systemPrompt(targetLang);
-      if (provider === "gemini") {
-        const modelName = encodeURIComponent(model.replace(/^models\//, ""));
-        const response = await postJson("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent", { "x-goog-api-key": apiKey }, {
-          ...!/^gemma-/i.test(model.replace(/^models\//, "")) ? { systemInstruction: { parts: [{ text: instructions }] } } : {},
-          contents: [{ role: "user", parts: [{ text: /^gemma-/i.test(model.replace(/^models\//, "")) ? instructions + "\n\nMensagem para tradu\xE7\xE3o:\n" + protectedText.text : protectedText.text }] }],
-          generationConfig: {}
-        }, config);
-        const candidate = response?.candidates?.[0];
-        if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-          throw new Error("O Gemini n\xE3o concluiu a tradu\xE7\xE3o (" + candidate.finishReason + ").");
-        }
-        const parts = candidate?.content?.parts;
-        translated = Array.isArray(parts) ? parts.filter((part) => part && !part.thought && typeof part.text === "string").map((part) => part.text).join("") : void 0;
+  function translateText(text, config) {
+    try {
+      let complete2 = function(translated) {
+        if (typeof translated !== "string" || !cleanString(translated)) throw new Error(PROVIDER_NAMES[provider] + " n\xE3o retornou texto traduzido.");
+        const restored = protectedText.restore(translated);
+        if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restaura\xE7\xE3o n\xE3o devolveu texto v\xE1lido.");
+        return restored;
+      };
+      var complete = complete2;
+      __name(complete2, "complete");
+      if (typeof text !== "string") throw new Error("Texto de tradu\xE7\xE3o inv\xE1lido.");
+      const { provider, targetLang } = config;
+      const apiKey = cleanString(config.apiKey);
+      if (!apiKey) throw new Error("Preencha a chave de API de " + PROVIDER_NAMES[provider] + ".");
+      if (!hasTranslatableText(text)) return Promise.resolve(text);
+      const pause = translationPause(provider, config.model);
+      if (pause) throw new TranslationRequestError(pause.reason + " Pausa ativa: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s.");
+      const useXml = provider === "deepl" && Boolean(cleanString(text).match(discordToken));
+      const protectedText = protect(text, useXml);
+      if (provider === "deepl") {
+        const endpoint = apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
+        return postJson(endpoint + "/v2/translate", { Authorization: "DeepL-Auth-Key " + apiKey }, {
+          text: [protectedText.text],
+          target_lang: targetLang === "EN" ? "EN-US" : targetLang,
+          ...useXml && {
+            tag_handling: "xml",
+            ignore_tags: ["keep"],
+            non_splitting_tags: ["keep"],
+            split_sentences: "nonewlines"
+          }
+        }, config).then(/* @__PURE__ */ __name(function parseDeepL(response) {
+          const entry = response?.translations?.[0];
+          if (entry?.detected_source_language?.split("-")[0] === targetLang.split("-")[0]) return text;
+          return complete2(entry?.text);
+        }, "parseDeepL"));
       } else {
-        const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
-        if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
-          throw new Error("Informe a URL HTTPS completa do endpoint compat\xEDvel com OpenAI.");
+        const model = cleanString(config.model) || DEFAULT_MODELS[provider];
+        if (!model) throw new Error("Informe o modelo do provedor personalizado.");
+        const instructions = systemPrompt(targetLang);
+        if (provider === "gemini") {
+          const modelName = encodeURIComponent(model.replace(/^models\//, ""));
+          return postJson("https://generativelanguage.googleapis.com/v1beta/models/" + modelName + ":generateContent", { "x-goog-api-key": apiKey }, {
+            ...!/^gemma-/i.test(model.replace(/^models\//, "")) ? { systemInstruction: { parts: [{ text: instructions }] } } : {},
+            contents: [{ role: "user", parts: [{ text: /^gemma-/i.test(model.replace(/^models\//, "")) ? instructions + "\n\nMensagem para tradu\xE7\xE3o:\n" + protectedText.text : protectedText.text }] }],
+            generationConfig: {}
+          }, config).then(/* @__PURE__ */ __name(function parseGemini(response) {
+            const candidate = response?.candidates?.[0];
+            if (candidate?.finishReason && candidate.finishReason !== "STOP") {
+              throw new Error("O Gemini n\xE3o concluiu a tradu\xE7\xE3o (" + candidate.finishReason + ").");
+            }
+            const parts = candidate?.content?.parts;
+            let translated = "";
+            if (Array.isArray(parts)) {
+              for (let index = 0; index < parts.length; index++) {
+                const part = parts[index];
+                if (part && part.thought !== true && typeof part.text === "string") translated += part.text;
+              }
+            }
+            return complete2(translated);
+          }, "parseGemini"));
+        } else {
+          const endpoint = provider === "custom" ? cleanString(config.customEndpoint) : CHAT_ENDPOINTS[provider];
+          if (!endpoint || !/^https:\/\/(?:[a-z0-9.-]+|\[[0-9a-f:.]+\])(?::\d+)?(?:[/?][^\s#\\]*)?$/i.test(endpoint)) {
+            throw new Error("Informe a URL HTTPS completa do endpoint compat\xEDvel com OpenAI.");
+          }
+          return postJson(endpoint, { Authorization: "Bearer " + apiKey }, {
+            model,
+            temperature: 0.2,
+            messages: [
+              { role: "system", content: instructions },
+              { role: "user", content: protectedText.text }
+            ]
+          }, config).then(/* @__PURE__ */ __name(function parseChat(response) {
+            const choice = response?.choices?.[0];
+            if (choice?.finish_reason && choice.finish_reason !== "stop") {
+              throw new Error(PROVIDER_NAMES[provider] + " n\xE3o concluiu a tradu\xE7\xE3o.");
+            }
+            return complete2(choice?.message?.content);
+          }, "parseChat"));
         }
-        const response = await postJson(endpoint, { Authorization: "Bearer " + apiKey }, {
-          model,
-          temperature: 0.2,
-          messages: [
-            { role: "system", content: instructions },
-            { role: "user", content: protectedText.text }
-          ]
-        }, config);
-        const choice = response?.choices?.[0];
-        if (choice?.finish_reason && choice.finish_reason !== "stop") {
-          throw new Error(PROVIDER_NAMES[provider] + " n\xE3o concluiu a tradu\xE7\xE3o.");
-        }
-        translated = choice?.message?.content;
       }
+    } catch (error) {
+      return Promise.reject(error);
     }
-    if (!cleanString(translated)) {
-      throw new Error(PROVIDER_NAMES[provider] + " n\xE3o retornou texto traduzido.");
-    }
-    if (typeof translated !== "string") throw new Error("Resposta sem texto de tradu\xE7\xE3o.");
-    const restored = protectedText.restore(translated);
-    if (typeof restored !== "string" || !cleanString(restored)) throw new Error("A restaura\xE7\xE3o n\xE3o devolveu texto v\xE1lido.");
-    return restored;
   }
   __name(translateText, "translateText");
 
@@ -885,38 +925,61 @@ var __plugin = (() => {
       setManualModel(false);
       setTestResult("");
     }, "pickModel");
-    const testApi = /* @__PURE__ */ __name(async (activate = false) => {
+    const testApi = /* @__PURE__ */ __name((activate = false) => {
       if (testing) return;
       setTesting(true);
-      setTestResult("Consultando o provedor...");
+      const sample = "Good morning, how are you?";
+      const started = Date.now();
+      let httpStatus = 0;
       let stage = "valida\xE7\xE3o";
+      let actualTranslation = "";
+      setTestResult("Original (EN): " + sample + "\nConsultando o provedor...");
+      function reportFailure(error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        setTestResult("Original (EN): " + sample + "\n" + (actualTranslation ? "Tradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" : "") + (httpStatus ? "HTTP " + httpStatus + "\n" : "Sem resposta HTTP confirmada.\n") + "Falha [" + stage + "]: " + detail);
+        setTesting(false);
+      }
+      __name(reportFailure, "reportFailure");
       try {
         const nextKey = cleanString(apiKey);
         const nextModel = provider === "deepl" ? "" : cleanString(model) || DEFAULT_MODELS[provider];
         const nextEndpoint = provider === "custom" ? cleanString(endpoint) : void 0;
         if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
         stage = "requisi\xE7\xE3o e tradu\xE7\xE3o";
-        const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint });
-        stage = "valida\xE7\xE3o da resposta";
-        const translated = cleanString(result);
-        if (!translated) throw new Error("O motor n\xE3o devolveu texto v\xE1lido.");
-        if (translated.toLowerCase() === "good morning, how are you?") throw new Error("O modelo n\xE3o traduziu a frase de teste.");
-        stage = "salvamento";
-        if (activate) {
+        const request = translateText(sample, {
+          provider,
+          targetLang: "PT-BR",
+          apiKey: nextKey,
+          model: nextModel,
+          customEndpoint: nextEndpoint,
+          onResponse: /* @__PURE__ */ __name(function recordStatus(status) {
+            if (typeof status === "number") httpStatus = status;
+          }, "recordStatus")
+        });
+        request.then(/* @__PURE__ */ __name(function receiveTranslation(result) {
+          stage = "valida\xE7\xE3o da resposta";
+          actualTranslation = cleanString(result);
+          if (!actualTranslation) throw new Error("O motor n\xE3o devolveu texto v\xE1lido (tipo: " + typeof result + ").");
+          if (actualTranslation.toLowerCase() === sample.toLowerCase()) throw new Error("O modelo n\xE3o traduziu a frase de teste.");
+          const summary = "Resposta da API (" + (nextModel || provider) + ")\nOriginal (EN): " + sample + "\nTradu\xE7\xE3o (PT-BR): " + actualTranslation + "\n" + (httpStatus ? "HTTP " + httpStatus + " \xB7 " : "") + (Date.now() - started) + " ms";
+          setTestResult(summary);
+          if (!activate) {
+            setTesting(false);
+            return;
+          }
+          stage = "salvamento";
           storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
           if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
           if (provider === "custom") storage2.customEndpoint = nextEndpoint ?? "";
           storage2.provider = provider;
           storage2.autoTranslate = true;
-          await onIncomingChange(true);
-        }
-        stage = "exibi\xE7\xE3o do resultado";
-        setTestResult("Resposta da API (" + (nextModel || provider) + "): " + translated + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
+          Promise.resolve(onIncomingChange(true)).then(/* @__PURE__ */ __name(function activated() {
+            setTestResult(summary + "\nConfigura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos.");
+            setTesting(false);
+          }, "activated"), reportFailure);
+        }, "receiveTranslation")).catch(reportFailure);
       } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        setTestResult("Falha [" + stage + "]: " + detail);
-      } finally {
-        setTesting(false);
+        reportFailure(error);
       }
     }, "testApi");
     const save = /* @__PURE__ */ __name(() => {
@@ -1078,7 +1141,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R27"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R28"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1225,6 +1288,7 @@ var __plugin = (() => {
         notifyStats();
       }, "onRequest")
     }).then((result) => {
+      if (typeof result !== "string" || !cleanString(result)) throw new Error("O motor n\xE3o devolveu texto v\xE1lido.");
       if (!signal.aborted) sessionStats.apiStatus = "Resposta v\xE1lida recebida";
       return result;
     }).catch((error) => {

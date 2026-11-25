@@ -1,4 +1,4 @@
-import { findByName, findByProps } from "@vendetta/metro";
+import { findByName, findByProps, findByPropsAll, find } from "@vendetta/metro";
 import { FluxDispatcher } from "@vendetta/metro/common";
 import { before, instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
@@ -44,6 +44,7 @@ let incomingController: AbortController | undefined;
 let outgoingController: AbortController | undefined;
 let unpatchRowManager: (() => void) | undefined;
 let unpatchSendMessage: (() => void) | undefined;
+let hookRetry: ReturnType<typeof setTimeout> | undefined;
 
 function notifyUser(message: string): void {
   try {
@@ -209,7 +210,7 @@ function pumpQueue(): void {
 function interceptRow(args: [MessageRow?, ...unknown[]]): void {
   const row = args[0];
   const rowMessage = row?.message;
-  if (row?.rowType !== 1 || !rowMessage?.id || !rowMessage.content) return;
+  if (!rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
   const channelId = rowMessage.channel_id ?? row.channelId;
   if (!channelId) return;
   const id = rowMessage.id;
@@ -318,26 +319,76 @@ function onLoad(): void {
   outgoingController = new AbortController();
   findStores();
 
-  try {
-    const rowManager = findByName("RowManager") as { prototype?: { generate?: unknown } } | undefined;
-    if (typeof rowManager?.prototype?.generate !== "function" || typeof FluxDispatcher?.dispatch !== "function") {
-      throw new Error();
-    }
-    unpatchRowManager = before("generate", rowManager.prototype, interceptRow);
-  } catch {
-    notifyUser("POLYZILLA: tradução recebida indisponível nesta versão do Discord.");
-  }
+  installHooks(0);
+}
 
-  try {
-    const actions = findByProps("sendMessage", "receiveMessage") as { sendMessage?: unknown } | undefined;
-    if (typeof actions?.sendMessage !== "function") throw new Error();
-    unpatchSendMessage = instead("sendMessage", actions, interceptSend);
-  } catch {
-    notifyUser("POLYZILLA: tradução no envio indisponível nesta versão do Discord.");
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function rowPrototype(candidate: unknown): object | undefined {
+  const value = candidate as { prototype?: { generate?: unknown }; default?: { prototype?: { generate?: unknown } } } | undefined;
+  if (typeof value?.prototype?.generate === "function") return value.prototype;
+  if (typeof value?.default?.prototype?.generate === "function") return value.default.prototype;
+}
+
+function outgoingActions(): object | undefined {
+  const matches = [
+    () => findByProps("sendMessage", "receiveMessage"),
+    () => findByProps("sendMessage", "editMessage"),
+    () => findByProps("sendMessage", "deleteMessage"),
+    () => findByProps("sendMessage", "sendBotMessage"),
+  ];
+  for (const resolve of matches) {
+    try {
+      const value = resolve() as { sendMessage?: unknown } | undefined;
+      if (typeof value?.sendMessage === "function") return value;
+    } catch {}
   }
+  try {
+    const all = findByPropsAll("sendMessage");
+    const actions = all.filter((value): value is { sendMessage: (...args: unknown[]) => unknown } =>
+      typeof (value as { sendMessage?: unknown } | undefined)?.sendMessage === "function");
+    if (actions.length === 1) return actions[0];
+  } catch {}
+}
+
+function installHooks(attempt: number): void {
+  if (!outgoingController) return;
+  let incomingError = "", outgoingError = "";
+  if (!unpatchRowManager) {
+    try {
+      let prototype = rowPrototype(findByName("RowManager"));
+      if (!prototype) prototype = rowPrototype(findByName("RowManager", false));
+      if (!prototype) prototype = rowPrototype(find(value => Boolean(rowPrototype(value))));
+      if (!prototype) throw new Error("RowManager.generate não localizado");
+      if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch não localizado");
+      const undo = before("generate", prototype, interceptRow);
+      if (typeof undo !== "function") throw new Error("patcher.before não retornou função de remoção");
+      unpatchRowManager = undo;
+    } catch (error) { incomingError = describeError(error); }
+  }
+  if (!unpatchSendMessage) {
+    try {
+      const actions = outgoingActions();
+      if (!actions) throw new Error("MessageActions.sendMessage não localizado");
+      const undo = instead("sendMessage", actions, interceptSend);
+      if (typeof undo !== "function") throw new Error("patcher.instead não retornou função de remoção");
+      unpatchSendMessage = undo;
+    } catch (error) { outgoingError = describeError(error); }
+  }
+  if (unpatchRowManager && unpatchSendMessage) return;
+  if (attempt < 3) {
+    hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);
+    return;
+  }
+  if (!unpatchRowManager) notifyUser("POLYZILLA recebimento: " + incomingError);
+  if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
 }
 
 function onUnload(): void {
+  if (hookRetry !== undefined) clearTimeout(hookRetry);
+  hookRetry = undefined;
   unpatchRowManager?.();
   unpatchSendMessage?.();
   unpatchRowManager = undefined;

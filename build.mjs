@@ -103,9 +103,48 @@ const vendettaRuntime = {
           ]);
           if (!React) throw new Error("POLYZILLA: módulo React incompatível com esta versão do Discord.");
           if (!ReactNative) throw new Error("POLYZILLA: componentes React Native não encontrados.");
-          const FluxDispatcher = common.FluxDispatcher;
+          const FluxDispatcher = select(value => {
+            if (typeof value?.dispatch !== "function") return;
+            return { dispatch(action) { return value.dispatch(action); } };
+          }, [
+            () => metro.findByProps("dispatch", "subscribe", "unsubscribe"),
+            () => common.FluxDispatcher,
+            () => metro.findByProps("dispatch", "_interceptors")
+          ]);
           export { React, ReactNative, FluxDispatcher };
         ` };
+      }
+      if (path === "@vendetta/metro") {
+        return { loader: "js", contents: `
+          const metro = vendetta.metro;
+          function findByName(name, defaultExp) { return metro.findByName(name, defaultExp); }
+          function findByProps(...props) { return metro.findByProps(...props); }
+          function findByStoreName(name) { return metro.findByStoreName?.(name); }
+          function findByPropsAll(...props) { return metro.findByPropsAll?.(...props) ?? []; }
+          function find(filter) { return metro.find?.(filter); }
+          export { findByName, findByProps, findByStoreName, findByPropsAll, find };
+        ` };
+      }
+      if (path === "@vendetta/patcher") {
+        return { loader: "js", contents: `
+          function before(property, target, callback) {
+            const fn = vendetta.patcher?.before;
+            if (typeof fn !== "function") throw new Error("API patcher.before ausente");
+            return vendetta.patcher.before(property, target, callback);
+          }
+          function instead(property, target, callback) {
+            const fn = vendetta.patcher?.instead;
+            if (typeof fn !== "function") throw new Error("API patcher.instead ausente");
+            return vendetta.patcher.instead(property, target, callback);
+          }
+          export { before, instead };
+        ` };
+      }
+      if (path === "@vendetta/plugin") {
+        return { loader: "js", contents: `export const storage = vendetta.plugin.storage;` };
+      }
+      if (path === "@vendetta/ui/toasts") {
+        return { loader: "js", contents: `export function showToast(text, asset) { return vendetta.ui.toasts.showToast(text, asset); }` };
       }
       if (path === "@vendetta/storage") {
         return { loader: "js", contents: `
@@ -182,21 +221,33 @@ const transient = target => new Proxy(target, {
 });
 const reactProxy = transient(mockReact);
 const nativeProxy = transient(mockNative);
+const mockRowManager = function RowManager() {};
+mockRowManager.prototype.generate = function(row) { return row; };
+const mockActions = { sendMessage: (channel, message) => message.content, editMessage() {} };
+const mockDispatcher = { dispatch() {}, subscribe() {}, unsubscribe() {} };
+const patched = [];
+const warnings = [];
 const mockVendetta = {
   metro: {
     common: { React: { useState: mockReact.useState }, ReactNative: { AppRegistry: {} } },
-    findByProps: (...keys) => [reactProxy, nativeProxy].find(module => keys.every(key => key in module)),
-    findByName: () => undefined,
+    findByProps: (...keys) => [reactProxy, nativeProxy, mockActions, mockDispatcher].find(module => keys.every(key => key in module)),
+    findByName: name => name === "RowManager" ? mockRowManager : undefined,
+    findByPropsAll: () => [mockActions],
+    find: () => undefined,
     findByStoreName: () => undefined,
   },
   plugin: { storage: {} },
-  patcher: {},
-  ui: { toasts: { showToast: () => {} } },
+  patcher: {
+    before(property, target, hook) { if (typeof target[property] !== "function") throw new Error("before target"); patched.push(property); return () => {}; },
+    instead(property, target, hook) { if (typeof target[property] !== "function") throw new Error("instead target"); patched.push(property); const sample = hook(["1", { content: "teste" }], target[property]); if (sample !== "teste") throw new Error("Envio original não preservado"); return () => {}; }
+  },
+  ui: { toasts: { showToast: text => warnings.push(text) } },
   storage: {},
 };
 const code = await readFile(bundle, "utf8");
 const testedPlugin = new Function("vendetta", "return " + code)(mockVendetta).default;
 testedPlugin.onLoad();
+if (!patched.includes("generate") || !patched.includes("sendMessage") || warnings.length) throw new Error("Falha na instalação dos hooks de mensagem: " + warnings.join("; "));
 expired = true;
 function renderTree(node) {
   if (node == null || typeof node !== "object") return;

@@ -9,7 +9,9 @@ declare module "@vendetta/plugin" {
 }
 
 declare module "@vendetta/metro" {
-  export function findByName(name: string): unknown;
+  export function findByName(name: string, defaultExp?: boolean): unknown;
+  export function findByPropsAll(...properties: string[]): unknown[];
+  export function find(filter: (value: unknown) => boolean): unknown;
   export function findByProps(...properties: string[]): unknown;
   export const findByStoreName: ((name: string) => unknown) | undefined;
 }

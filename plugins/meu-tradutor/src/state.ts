@@ -77,6 +77,12 @@ function findStore<T>(name: string, method: string): T | undefined {
 
 export function findStores(): void {
   stores.messages = findStore("MessageStore", "getMessage");
+  if (!stores.messages?.getMessages) {
+    try {
+      const candidate = findByProps("getMessage", "getMessages") as DiscordStores["messages"];
+      if (typeof candidate?.getMessages === "function" && typeof candidate?.getMessage === "function") stores.messages = candidate;
+    } catch {}
+  }
   stores.users = findStore("UserStore", "getCurrentUser");
   stores.channels = findStore("ChannelStore", "getChannel");
   stores.guilds = findStore("GuildStore", "getGuild");

@@ -197,46 +197,44 @@ function isSelected(channelId: string): boolean {
   return !selected || selected === channelId;
 }
 
+function startTranslation(id: string, controller: AbortController, session: AbortController): void {
+  const key = cacheKey(id);
+  const observed = visibleMessages.get(id);
+  if (!observed || !isSelected(observed.channelId) || !canTranslateIncoming(observed)) return;
+  const source = observed.source;
+  if (getCached(key, source) !== undefined || failed.get(key) === source) return;
+  inFlight.add(key);
+  void translate(source, storage.targetLang, controller.signal).then(translated => {
+    const current = visibleMessages.get(id);
+    const currentOriginal = readOriginal(observed.channelId, id);
+    if (controller.signal.aborted || !current || current.source !== source
+      || (currentOriginal && currentOriginal.content !== source)
+      || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
+    cacheTranslation(key, source, translated);
+    if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
+  }).catch(() => {
+    if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
+      if (failed.size >= MAX_CACHED) {
+        const oldest = failed.keys().next().value;
+        if (oldest !== undefined) failed.delete(oldest);
+      }
+      failed.set(key, source);
+    }
+  }).finally(() => {
+    if (outgoingController !== session) return;
+    inFlight.delete(key);
+    pumpQueue();
+  });
+}
 function pumpQueue(): void {
   const controller = incomingController;
   const session = outgoingController;
   if (!controller || !session || !storage.autoTranslate) return;
-
-  for (const id of queue) {
+  for (const id of Array.from(queue)) {
     if (inFlight.size >= MAX_INFLIGHT) break;
-    const key = cacheKey(id);
-    if (inFlight.has(key)) continue;
-
+    if (inFlight.has(cacheKey(id))) continue;
     queue.delete(id);
-    const observed = visibleMessages.get(id);
-    if (!observed || !isSelected(observed.channelId) || !canTranslateIncoming(observed)) continue;
-
-    const source = observed.source;
-    if (getCached(key, source) !== undefined || failed.get(key) === source) continue;
-    inFlight.add(key);
-
-    void translate(source, storage.targetLang, controller.signal).then(translated => {
-      const current = visibleMessages.get(id);
-      const currentOriginal = readOriginal(observed.channelId, id);
-      if (controller.signal.aborted || !current || current.source !== source
-        || (currentOriginal && currentOriginal.content !== source)
-        || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
-      cacheTranslation(key, source, translated);
-      if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
-    }).catch(() => {
-      if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
-        if (failed.size >= MAX_CACHED) {
-          const oldest = failed.keys().next().value;
-          if (oldest !== undefined) failed.delete(oldest);
-        }
-        failed.set(key, source);
-      }
-    }).finally(() => {
-      // Uma requisição antiga não pode liberar chaves de uma nova sessão.
-      if (outgoingController !== session) return;
-      inFlight.delete(key);
-      pumpQueue();
-    });
+    startTranslation(id, controller, session);
   }
 }
 
@@ -296,9 +294,9 @@ function scanSelectedChannel(): void {
   try {
     const channelId = stores.selectedChannel?.getChannelId();
     if (!channelId || !shouldTranslateChannel(channelId)) return;
-    const raw = stores.messages?.getMessages?.(channelId) as { toArray?(): unknown; _array?: unknown; messages?: unknown; } | undefined;
+    const raw = stores.messages?.getMessages?.(channelId) as { toArray?(): unknown; _array?: unknown; messages?: unknown; getMessages?(): unknown; } | undefined;
     if (!raw) return;
-    const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : raw._array ?? raw.messages;
+    const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : typeof raw.getMessages === "function" ? raw.getMessages() : raw._array ?? raw.messages;
     if (!Array.isArray(list)) return;
     const recent = list.slice(-30);
     for (const message of recent) {
@@ -453,7 +451,6 @@ function installHooks(attempt: number): void {
 function onUnload(): void {
   if (scanTimer !== undefined) clearInterval(scanTimer);
   scanTimer = undefined;
-  restoreLocal();
   if (hookRetry !== undefined) clearTimeout(hookRetry);
   hookRetry = undefined;
   unpatchRowManager?.();
@@ -464,17 +461,11 @@ function onUnload(): void {
   outgoingController?.abort();
   incomingController = undefined;
   outgoingController = undefined;
+  restoreLocal();
   if (renderTimer !== undefined) clearTimeout(renderTimer);
   if (statsTimer !== undefined) clearTimeout(statsTimer);
   renderTimer = undefined;
   statsTimer = undefined;
-
-  const originals: Message[] = [];
-  for (const [id, observed] of visibleMessages) {
-    if (!observed.translated) continue;
-    const original = readOriginal(observed.channelId, id, observed.message);
-    if (original) originals.push(original);
-  }
 
   visibleMessages.clear();
   translationCache.clear();
@@ -486,8 +477,7 @@ function onUnload(): void {
   statsListeners.clear();
   stats = { ...emptyStats };
 
-  // Despacha só depois de remover os patches, usando os objetos originais.
-  for (const original of originals) dispatchMessage(original);
+  try { stores.messages?.emitChange?.(); } catch {}
 }
 
 function PluginSettings(): JSX.Element {

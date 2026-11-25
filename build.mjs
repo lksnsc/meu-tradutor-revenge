@@ -36,18 +36,28 @@ const vendettaRuntime = {
             const Probe = () => null;
             const probe = Reflect.apply(methods.createElement, value, [Probe, { test: 1 }]);
             if (!probe || probe.type !== Probe && probe.component !== Probe || probe.props?.test !== 1) return;
-            const result = {};
-            for (const key of reactKeys) {
-              const fn = methods[key];
-              result[key] = (...args) => {
-                try {
-                  const output = Reflect.apply(fn, value, args);
-                  if (key === "useState" && typeof output?.[1] !== "function") throw new Error("retorno sem setter válido");
-                  return output;
-                }
-                catch (error) { throw new Error("POLYZILLA React." + key + ": " + String(error?.message ?? error)); }
-              };
-            }
+            // Explicit independent bindings: no loop-scoped closures in Hermes eval.
+            const createElement = methods.createElement;
+            const useState = methods.useState;
+            const useEffect = methods.useEffect;
+            const useReducer = methods.useReducer;
+            const result = {
+              createElement: function polyzillaCreateElement(...args) {
+                return Reflect.apply(createElement, value, args);
+              },
+              useState: function polyzillaUseState(initial) {
+                const output = Reflect.apply(useState, value, [initial]);
+                if (typeof output?.[1] !== "function") throw new Error("POLYZILLA useState: setter inválido.");
+                return output;
+              },
+              useEffect: function polyzillaUseEffect(effect, deps) {
+                return Reflect.apply(useEffect, value, [effect, deps]);
+              },
+              useReducer: function polyzillaUseReducer(reducer, initial, init) {
+                if (typeof reducer !== "function") throw new Error("POLYZILLA useReducer: reducer inválido.");
+                return Reflect.apply(useReducer, value, [reducer, initial, init]);
+              }
+            };
             return result;
           }
           function captureNative(value) {
@@ -154,11 +164,14 @@ await build({
 // disappear after initialization. Render recursively after invalidating those proxies.
 let tab = "traducao";
 const mockReact = {
-  createElement: (component, props, ...children) => ({ component, props: { ...props, children } }),
+  createElement: (component, props, ...children) => {
+    if (typeof component !== "function" && typeof component !== "object") throw new Error("createElement recebeu componente inválido");
+    return { component, props: { ...props, children } };
+  },
   // Deliberately non-iterable hook result: only indexed access is supported.
   useState: initial => ({ 0: initial === "traducao" ? tab : typeof initial === "function" ? initial() : initial, 1: () => {} }),
-  useEffect: () => {},
-  useReducer: () => ({ 0: 0, 1: () => {} }),
+  useEffect: effect => { if (typeof effect !== "function") throw new Error("useEffect recebeu callback inválido"); },
+  useReducer: () => { throw new Error("A interface não deve chamar useReducer"); },
   isValidElement: () => true,
   version: "19.0.0",
 };

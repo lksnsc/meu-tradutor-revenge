@@ -261,6 +261,57 @@ function ApiInput({
   );
 }
 
+// Catalog shown even before the user enters a key. The live API list is authoritative
+// for discovery, but only a successful generation confirms permission and quota.
+const GEMINI_MODEL_CHOICES: Record<string, string> = {
+  "gemini-4-hydrogen": "Gemini 4 Hydrogen",
+  "gemini-4-neon": "Gemini 4 Neon",
+  "gemini-4-carbon": "Gemini 4 Carbon",
+  "gemini-4-argon": "Gemini 4 Argon",
+  "gemini-3.5-flash-lite": "Gemini 3.5 Flash-Lite",
+  "gemini-3.8-flash": "Gemini 3.8 Flash",
+  "gemini-2.5-flash-lite": "Gemini 2.5 Flash-Lite",
+  "gemini-2.5-flash": "Gemini 2.5 Flash (legado)",
+  "gemini-2.5-pro": "Gemini 2.5 Pro (legado)",
+};
+
+interface GoogleModel {
+  name?: string;
+  displayName?: string;
+  supportedGenerationMethods?: string[];
+}
+async function loadGeminiModels(key: string): Promise<Record<string, string>> {
+  if (!key.trim()) throw new Error("Informe sua chave de API Gemini.");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 30000);
+  const models: Record<string, string> = {};
+  const tokens = new Set<string>();
+  let token = "";
+  try {
+    do {
+      const url = "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+        + (token ? "&pageToken=" + encodeURIComponent(token) : "");
+      const response = await fetch(url, {
+        headers: { "x-goog-api-key": key.trim() },
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error("Google retornou HTTP " + response.status + " ao listar modelos.");
+      const page = await response.json() as { models?: GoogleModel[]; nextPageToken?: string };
+      for (const item of page.models ?? []) {
+        const id = item.name?.replace(/^models\//, "") ?? "";
+        if (!/^(gemini|gemma)-[a-z0-9._-]+$/i.test(id)) continue;
+        if (!item.supportedGenerationMethods?.includes("generateContent")) continue;
+        if (/(?:^|[-_.])(image|tts|audio|live|embedding|robotics|computer-use)(?:$|[-_.])/i.test(id)) continue;
+        models[id] = item.displayName || id;
+      }
+      token = page.nextPageToken ?? "";
+      if (token && tokens.has(token)) throw new Error("O Google repetiu o token de paginação.");
+      if (token) tokens.add(token);
+    } while (token);
+    return models;
+  } finally { clearTimeout(timer); }
+}
+
 function ProviderFields({
   provider, onIncomingChange,
 }: { provider: ProviderId; onIncomingChange: SettingsProps["onIncomingChange"] }): JSX.Element {
@@ -281,6 +332,35 @@ function ProviderFields({
   const testingState = React.useState(false);
   const testing = testingState[0];
   const setTesting = testingState[1];
+  const catalogState = React.useState<Record<string, string>>(GEMINI_MODEL_CHOICES);
+  const catalog = catalogState[0];
+  const setCatalog = catalogState[1];
+  const catalogStatusState = React.useState("Catálogo inicial · consulte a API para atualizar.");
+  const catalogStatus = catalogStatusState[0];
+  const setCatalogStatus = catalogStatusState[1];
+  const catalogOpenState = React.useState(false);
+  const catalogOpen = catalogOpenState[0];
+  const setCatalogOpen = catalogOpenState[1];
+  const loadingState = React.useState(false);
+  const loading = loadingState[0];
+  const setLoading = loadingState[1];
+  const searchState = React.useState("");
+  const query = searchState[0];
+  const setQuery = searchState[1];
+  const refreshCatalog = async () => {
+    if (loading) return;
+    setLoading(true);
+    setCatalogStatus("Consultando catálogo do Google...");
+    try {
+      const result = await loadGeminiModels(apiKey);
+      setCatalog(result);
+      setCatalogOpen(true);
+      setCatalogStatus(Object.keys(result).length + " modelos encontrados. Teste o modelo escolhido para verificar acesso e cota.");
+    } catch (error) {
+      setCatalogStatus("Falha na consulta: " + (error instanceof Error ? error.message : String(error)));
+    } finally { setLoading(false); }
+  };
+  const matchingModels = Object.keys(catalog).filter(id => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
   const testApi = async () => {
     if (testing) return;
     setTesting(true);
@@ -315,6 +395,29 @@ function ProviderFields({
       {provider !== "deepl" && (
         <ApiInput label="Modelo" value={model} onChange={setModel}
           placeholder={DEFAULT_MODELS[provider] || "Nome do modelo"} />
+      )}
+      {provider === "gemini" && (
+        <View style={styles.field}>
+          <Text style={styles.label}>Catálogo de modelos Gemini</Text>
+          <Text style={styles.hint}>{catalogStatus}</Text>
+          <Button label={catalogOpen ? "Recolher modelos" : "Escolher modelo"} onPress={() => setCatalogOpen(!catalogOpen)} />
+          <Button label={loading ? "Consultando..." : "Atualizar lista pela API"} onPress={() => { void refreshCatalog(); }} />
+          {catalogOpen && (
+            <View>
+              <ApiInput label="Pesquisar modelo" value={query} onChange={setQuery} placeholder="Gemini 4, Flash, Gemma..." />
+              {matchingModels.length === 0 && <Text style={styles.hint}>Nenhum modelo encontrado.</Text>}
+              {matchingModels.map(id => (
+                <Pressable key={id} style={[styles.option, model === id && styles.selected]}
+                  accessibilityRole="button" accessibilityState={{ selected: model === id }}
+                  onPress={() => { setModel(id); setCatalogOpen(false); setTestResult(""); }}>
+                  <Text style={[styles.optionText, model === id && styles.selectedText]}>{catalog[id]}</Text>
+                  <Text style={[styles.hint, model === id && styles.selectedText]}>{id}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <Text style={styles.hint}>Modelos de texto compatíveis com generateContent. O catálogo não garante acesso ou gratuidade; use Testar API agora e depois Salvar API. Você também pode informar o ID manualmente.</Text>
+        </View>
       )}
       {provider === "custom" && (
         <ApiInput label="Endpoint compatível com OpenAI" value={endpoint} onChange={setEndpoint}

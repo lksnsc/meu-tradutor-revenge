@@ -25,12 +25,13 @@ interface PluginStorage {
 export interface Message {
   id: string;
   channel_id?: string;
+  channelId?: string;
   content: string;
   author?: { id?: string };
 }
 
 interface DiscordStores {
-  messages?: { getMessage(channelId: string, id: string): Message | undefined | null };
+  messages?: { getMessage(channelId: string, id: string): Message | undefined | null; getMessages?(channelId: string): unknown; emitChange?(): void };
   users?: { getCurrentUser(): { id: string } | undefined | null };
   channels?: { getChannel(id: string): { guild_id?: string; name?: string } | undefined | null };
   guilds?: { getGuild(id: string): { name?: string } | undefined | null };

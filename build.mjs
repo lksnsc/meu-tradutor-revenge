@@ -224,7 +224,11 @@ const nativeProxy = transient(mockNative);
 const mockRowManager = function RowManager() {};
 mockRowManager.prototype.generate = function(row) { return row; };
 const mockActions = { sendMessage: (channel, message) => message.content, editMessage() {} };
-const mockDispatcher = { dispatch() {}, subscribe() {}, unsubscribe() {} };
+const sampleMessage = { id: "100", channel_id: "1", content: "Good morning", author: { id: "2" } };
+let currentMessage = { ...sampleMessage };
+const mockStore = { getMessage(channel, id) { return id === currentMessage.id ? currentMessage : undefined; }, getMessages() { return { _array: [currentMessage] }; } };
+const selectedStore = { getChannelId() { return "1"; } };
+const mockDispatcher = { dispatch(action) { if (action.type === "MESSAGE_UPDATE") currentMessage = { ...currentMessage, ...action.message }; }, subscribe() {}, unsubscribe() {} };
 const patched = [];
 const warnings = [];
 const mockVendetta = {
@@ -234,20 +238,31 @@ const mockVendetta = {
     findByName: name => name === "RowManager" ? mockRowManager : undefined,
     findByPropsAll: () => [mockActions],
     find: () => undefined,
-    findByStoreName: () => undefined,
+    findByStoreName: name => name === "MessageStore" ? mockStore : name === "SelectedChannelStore" ? selectedStore : undefined,
   },
   plugin: { storage: {} },
   patcher: {
     before(property, target, hook) { if (typeof target[property] !== "function") throw new Error("before target"); patched.push(property); return () => {}; },
-    instead(property, target, hook) { if (typeof target[property] !== "function") throw new Error("instead target"); patched.push(property); const sample = hook(["1", { content: "teste" }], target[property]); if (sample !== "teste") throw new Error("Envio original não preservado"); return () => {}; }
+    instead(property, target, hook) { if (typeof target[property] !== "function") throw new Error("instead target"); patched.push(property); const original = target[property]; target[property] = function(...args) { return hook(args, original.bind(this)); }; return () => { target[property] = original; }; }
   },
   ui: { toasts: { showToast: text => warnings.push(text) } },
   storage: {},
 };
 const code = await readFile(bundle, "utf8");
 const testedPlugin = new Function("vendetta", "return " + code)(mockVendetta).default;
+const realFetch = globalThis.fetch;
+let translationRequests = 0;
+globalThis.fetch = async () => { translationRequests++; return { ok: true, json: async () => ({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "Bom dia" }] } }] }) }; };
+Object.assign(mockVendetta.plugin.storage, { autoTranslate: true, provider: "gemini", apiKeys: { gemini: "test-only" }, models: { gemini: "test-model" } });
 testedPlugin.onLoad();
 if (!patched.includes("generate") || !patched.includes("sendMessage") || warnings.length) throw new Error("Falha na instalação dos hooks de mensagem: " + warnings.join("; "));
+const rowManager = new mockRowManager();
+rowManager.generate({ rowType: 1, message: sampleMessage });
+await new Promise(resolve => setTimeout(resolve, 80));
+if (translationRequests !== 1 || currentMessage.content !== "Bom dia") throw new Error("Fluxo recebido não traduziu o histórico");
+const translatedRow = rowManager.generate({ rowType: 1, message: sampleMessage });
+if (translatedRow.message.content !== "Bom dia" || sampleMessage.content !== "Good morning") throw new Error("Renderização ou preservação do original falhou");
+if (mockActions.sendMessage("1", { content: "teste" }) !== "teste") throw new Error("Envio original não preservado");
 expired = true;
 function renderTree(node) {
   if (node == null || typeof node !== "object") return;
@@ -265,6 +280,10 @@ for (const theme of ["neobrutal-light", "kaiju-dark"]) {
   }
 }
 testedPlugin.onUnload();
+await new Promise(resolve => setTimeout(resolve, 20));
+if (currentMessage.content !== "Good morning") throw new Error("Original não restaurado");
+globalThis.fetch = realFetch;
+console.log("POLYZILLA: captura, tradução simulada, aplicação local e restauração aprovadas.");
 console.log("POLYZILLA: renderização recursiva das quatro abas e dois temas com proxies invalidados aprovada.");
 
 const manifest = JSON.parse(await readFile(join(source, "manifest.json"), "utf8"));

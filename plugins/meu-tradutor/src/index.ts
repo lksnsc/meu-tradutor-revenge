@@ -1,6 +1,6 @@
 import { findByName, findByProps, findByPropsAll, find } from "@vendetta/metro";
 import { FluxDispatcher } from "@vendetta/metro/common";
-import { before, instead } from "@vendetta/patcher";
+import { instead } from "@vendetta/patcher";
 import { showToast } from "@vendetta/ui/toasts";
 import Settings from "./Settings";
 import { findStores, initializeSettings, shouldTranslateChannel, storage, stores, type Message, type Stats } from "./state";
@@ -45,6 +45,8 @@ let outgoingController: AbortController | undefined;
 let unpatchRowManager: (() => void) | undefined;
 let unpatchSendMessage: (() => void) | undefined;
 let hookRetry: ReturnType<typeof setTimeout> | undefined;
+let scanTimer: ReturnType<typeof setInterval> | undefined;
+const appliedLocally = new Map<string, { original: Message; translated: string; channelId: string }>();
 
 function notifyUser(message: string): void {
   try {
@@ -126,28 +128,59 @@ function getCached(key: string, source: string): string | undefined {
 
 function dispatchMessage(original: Message): void {
   try {
-    const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: original });
-    void Promise.resolve(dispatched).catch(() => {});
+    const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
+    void Promise.resolve(dispatched).catch(error => { stats.lastError = "Atualização local: " + describeError(error); notifyStats(); });
   } catch {
     // Algumas versões rejeitam atualizações locais durante uma troca de canal.
   }
 }
 
+function readOriginal(channelId: string, id: string, fallback?: Message): Message | undefined {
+  try {
+    const current = stores.messages?.getMessage(channelId, id) ?? fallback;
+    const applied = appliedLocally.get(id);
+    if (applied && current?.content === applied.translated) return applied.original;
+    if (applied && current && current.content !== applied.original.content) appliedLocally.delete(id);
+    return current;
+  } catch { return fallback; }
+}
+function restoreLocal(): void {
+  for (const [id, applied] of appliedLocally) {
+    try {
+      const current = stores.messages?.getMessage(applied.channelId, id);
+      // Never overwrite a real edit received after the local translation.
+      if (current?.content === applied.translated) dispatchMessage({ ...current, content: applied.original.content, channel_id: applied.channelId });
+    } catch {}
+  }
+  appliedLocally.clear();
+}
 function scheduleRender(id: string): void {
   pendingRenders.add(id);
   if (renderTimer !== undefined) return;
-
   renderTimer = setTimeout(() => {
     renderTimer = undefined;
-    const refresh = [...pendingRenders];
+    const refresh = Array.from(pendingRenders);
     pendingRenders.clear();
     for (const messageId of refresh) {
       const observed = visibleMessages.get(messageId);
-      if (!observed) continue;
-      const original = stores.messages
-        ? stores.messages.getMessage(observed.channelId, messageId)
-        : observed.message;
-      if (original) dispatchMessage(original);
+      if (!observed || !isSelected(observed.channelId)) continue;
+      const original = readOriginal(observed.channelId, messageId, observed.message);
+      if (!original) continue;
+      const cached = getCached(cacheKey(messageId), observed.source);
+      if (cached !== undefined && cached !== original.content && canTranslateIncoming(observed)) {
+        // Local Flux event only, never an edit request to Discord's servers.
+        // Keep the original so later reads and disabling the plugin are reversible.
+        const current = stores.messages?.getMessage(observed.channelId, messageId);
+        if (current && current.content === original.content) {
+          if (appliedLocally.size < MAX_CACHED || appliedLocally.has(messageId)) {
+            appliedLocally.set(messageId, { original, translated: cached, channelId: observed.channelId });
+            dispatchMessage({ ...current, content: cached, channel_id: observed.channelId });
+          }
+        } else if (!current) {
+          dispatchMessage(original);
+        }
+      } else dispatchMessage(original);
+      try { stores.messages?.emitChange?.(); } catch {}
     }
   }, 0);
 }
@@ -184,7 +217,7 @@ function pumpQueue(): void {
 
     void translate(source, storage.targetLang, controller.signal).then(translated => {
       const current = visibleMessages.get(id);
-      const currentOriginal = stores.messages?.getMessage(observed.channelId, id);
+      const currentOriginal = readOriginal(observed.channelId, id);
       if (controller.signal.aborted || !current || current.source !== source
         || (currentOriginal && currentOriginal.content !== source)
         || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
@@ -207,60 +240,80 @@ function pumpQueue(): void {
   }
 }
 
-function interceptRow(args: [MessageRow?, ...unknown[]]): void {
-  stats.observed++;
-  notifyStats();
-  const row = args[0];
-  const rowMessage = row?.message;
-  if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
-  const channelId = rowMessage.channel_id ?? row.channelId;
-  if (!channelId) return;
-  const id = rowMessage.id;
-  const message = stores.messages?.getMessage(channelId, id) ?? rowMessage;
-  if (typeof message.content !== "string") return;
-
+function observeMessage(message: Message, channelId: string): ObservedMessage | undefined {
+  if (!message?.id || typeof message.content !== "string" || !message.content || !isSelected(channelId)) return;
+  const original = readOriginal(channelId, message.id, message) ?? message;
+  if (typeof original.content !== "string") return;
+  const id = original.id;
   const previous = visibleMessages.get(id);
-  const observed: ObservedMessage = {
-    channelId,
-    message,
-    source: message.content,
-    translated: false,
-  };
-  if (previous) visibleMessages.delete(id);
+  if (!previous || previous.source !== original.content) stats.observed++;
+  const observed: ObservedMessage = { channelId, message: original, source: original.content, translated: previous?.source === original.content && !!previous.translated };
+  visibleMessages.delete(id);
   visibleMessages.set(id, observed);
-
   if (visibleMessages.size > MAX_OBSERVED) {
     const oldest = visibleMessages.keys().next().value;
-    if (oldest !== undefined) {
-      visibleMessages.delete(oldest);
-      queue.delete(oldest);
+    if (oldest !== undefined) { visibleMessages.delete(oldest); queue.delete(oldest); }
+  }
+  if (canTranslateIncoming(observed)) {
+    const key = cacheKey(id);
+    if (getCached(key, observed.source) === undefined && !inFlight.has(key) && failed.get(key) !== observed.source) {
+      queue.add(id);
+      pumpQueue();
     }
   }
+  notifyStats();
+  return observed;
+}
 
-  if (!canTranslateIncoming(observed)) return;
-  const key = cacheKey(id);
-  const cached = getCached(key, observed.source);
-  if (cached !== undefined) {
-    stats.cacheHits++;
+function interceptRow(args: [MessageRow?, ...unknown[]], original: (...args: [MessageRow?, ...unknown[]]) => unknown): unknown {
+  try {
+    const row = args[0];
+    const message = row?.message;
+    const channelId = message?.channel_id ?? message?.channelId ?? row?.channelId;
+    if (row && message && channelId) {
+      const observed = observeMessage(message, channelId);
+      if (observed && canTranslateIncoming(observed)) {
+        const cached = getCached(cacheKey(message.id), observed.source);
+        if (cached !== undefined && cached !== observed.source) {
+          // Preserve prototypes and never mutate the original message object.
+          const copy = Object.assign(Object.create(Object.getPrototypeOf(message)), message, { content: cached });
+          args[0] = Object.assign(Object.create(Object.getPrototypeOf(row)), row, { message: copy });
+          observed.translated = true;
+          stats.cacheHits++;
+          stats.rendered++;
+          notifyStats();
+        }
+      }
+    }
+  } catch (error) { stats.lastError = "Renderização: " + describeError(error); notifyStats(); }
+  return original(...args);
+}
+
+// A second input surface covers existing history and new messages without
+// depending on the RowManager name or on its argument shape.
+function scanSelectedChannel(): void {
+  if (!outgoingController || !storage.autoTranslate || !storage.apiKeys[storage.provider]?.trim()) return;
+  try {
+    const channelId = stores.selectedChannel?.getChannelId();
+    if (!channelId || !shouldTranslateChannel(channelId)) return;
+    const raw = stores.messages?.getMessages?.(channelId) as { toArray?(): unknown; _array?: unknown; messages?: unknown; } | undefined;
+    if (!raw) return;
+    const list = Array.isArray(raw) ? raw : typeof raw.toArray === "function" ? raw.toArray() : raw._array ?? raw.messages;
+    if (!Array.isArray(list)) return;
+    const recent = list.slice(-30);
+    for (const message of recent) {
+      if (message && typeof message.id === "string" && (message.channel_id ?? message.channelId ?? channelId) === channelId)
+        observeMessage(message as Message, channelId);
+    }
+    if (!unpatchRowManager) stats.incomingStatus = "Captura por MessageStore";
     notifyStats();
-    if (cached !== observed.source) {
-      args[0] = { ...row, message: { ...message, content: cached } };
-      observed.translated = true;
-      stats.rendered++;
-      notifyStats();
-    }
-    return;
-  }
-
-  if ((!inFlight.has(key) || previous?.source !== observed.source) && failed.get(key) !== observed.source) {
-    queue.add(id);
-    pumpQueue();
-  }
+  } catch (error) { stats.lastError = "Histórico local: " + describeError(error); notifyStats(); }
 }
 
 function refreshIncoming(resetCache = false): void {
   if (!incomingController) return;
   incomingController.abort();
+  restoreLocal();
   incomingController = new AbortController();
   queue.clear();
   failed.clear();
@@ -279,6 +332,7 @@ function refreshIncoming(resetCache = false): void {
     if (cached === undefined) queue.add(id);
     else if (cached !== observed.source) scheduleRender(id);
   }
+  scanSelectedChannel();
   pumpQueue();
 }
 
@@ -324,6 +378,8 @@ function onLoad(): void {
   findStores();
 
   installHooks(0);
+  scanTimer = setInterval(scanSelectedChannel, 1200);
+  scanSelectedChannel();
 }
 
 function describeError(error: unknown): string {
@@ -367,8 +423,8 @@ function installHooks(attempt: number): void {
       if (!prototype) prototype = rowPrototype(find(value => Boolean(rowPrototype(value))));
       if (!prototype) throw new Error("RowManager.generate não localizado");
       if (typeof FluxDispatcher?.dispatch !== "function") throw new Error("FluxDispatcher.dispatch não localizado");
-      const undo = before("generate", prototype, interceptRow);
-      if (typeof undo !== "function") throw new Error("patcher.before não retornou função de remoção");
+      const undo = instead("generate", prototype, interceptRow);
+      if (typeof undo !== "function") throw new Error("patcher.instead não retornou função de remoção");
       unpatchRowManager = undo;
       stats.incomingStatus = "Interceptação instalada";
     } catch (error) { incomingError = describeError(error); stats.incomingStatus = incomingError; }
@@ -389,11 +445,15 @@ function installHooks(attempt: number): void {
     hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);
     return;
   }
-  if (!unpatchRowManager) notifyUser("POLYZILLA recebimento: " + incomingError);
+  if (!unpatchRowManager && typeof stores.messages?.getMessages !== "function") notifyUser("POLYZILLA recebimento: " + incomingError);
+  else if (!unpatchRowManager) stats.incomingStatus = "Captura alternativa por MessageStore";
   if (!unpatchSendMessage) notifyUser("POLYZILLA envio: " + outgoingError);
 }
 
 function onUnload(): void {
+  if (scanTimer !== undefined) clearInterval(scanTimer);
+  scanTimer = undefined;
+  restoreLocal();
   if (hookRetry !== undefined) clearTimeout(hookRetry);
   hookRetry = undefined;
   unpatchRowManager?.();
@@ -412,7 +472,7 @@ function onUnload(): void {
   const originals: Message[] = [];
   for (const [id, observed] of visibleMessages) {
     if (!observed.translated) continue;
-    const original = stores.messages ? stores.messages.getMessage(observed.channelId, id) : observed.message;
+    const original = readOriginal(observed.channelId, id, observed.message);
     if (original) originals.push(original);
   }
 

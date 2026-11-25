@@ -227,14 +227,14 @@ export async function translateText(text: string, config: TranslatorConfig): Pro
       const response = await postJson<{
         candidates?: { finishReason?: string; content?: { parts?: { text?: string; thought?: boolean }[] } }[];
       }>("https://generativelanguage.googleapis.com/v1beta/models/" + modelName
-        + ":generateContent?key=" + encodeURIComponent(apiKey), {}, {
+        + ":generateContent", { "x-goog-api-key": apiKey }, {
         systemInstruction: { parts: [{ text: instructions }] },
         contents: [{ role: "user", parts: [{ text: protectedText.text }] }],
-        generationConfig: { temperature: 0.2 },
+        generationConfig: {},
       }, config);
       const candidate = response?.candidates?.[0];
       if (candidate?.finishReason && candidate.finishReason !== "STOP") {
-        throw new Error("O Gemini não concluiu a tradução.");
+        throw new Error("O Gemini não concluiu a tradução (" + candidate.finishReason + ").");
       }
       translated = candidate?.content?.parts?.filter(part => !part.thought).map(part => part.text ?? "").join("");
     } else {

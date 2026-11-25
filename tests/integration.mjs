@@ -16,7 +16,7 @@ assert.equal(code, await readFile("dist/" + manifest.main, "utf8"));
 assert.equal(code, await readFile("dist/meu-tradutor/" + manifest.main, "utf8"));
 assert.ok(!/\.trim(?:Start|End)?\s*\(/.test(code));
 assert.ok(!code.includes("modelChevron"));
-assert.ok(code.includes("R29"));
+assert.ok(code.includes("R30"));
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, timeout=2500) {
   const end = Date.now() + timeout;
@@ -75,6 +75,13 @@ let httpError=0;
 let malformedResponse=false;
 const freeCalls=[];
 globalThis.fetch=async(url,init)=>{
+  if (url === "https://api.cloudflare.com/client/v4/accounts/" + "a".repeat(32) + "/ai/run/@cf/meta/m2m100-1.2b") {
+    const body=JSON.parse(init.body);
+    assert.equal(init.headers.Authorization,"Bearer synthetic-cloudflare");
+    assert.equal(body.source_lang,"en"); assert.equal(body.target_lang,"pt");
+    assert.equal(body.text,"Good morning, how are you?");
+    return {ok:true,status:200,json:async()=>({success:true,result:{translated_text:"Bom dia, como você está?"},errors:[]})};
+  }
   if (url === "https://api.groq.com/openai/v1/chat/completions" || url === "https://openrouter.ai/api/v1/chat/completions") {
     const body=JSON.parse(init.body);
     const isGroq=url.includes("api.groq.com");
@@ -181,6 +188,18 @@ try {
     assert.ok(hasText("HTTP 200"));
   }
   assert.deepEqual(freeCalls,["qwen/qwen3.8-27b","openrouter/free"]);
+  await act(async()=>press("Cloudflare Workers AI"));
+  await act(async()=>byLabel("TextInput","Chave de API").props.onChangeText("synthetic-cloudflare"));
+  await act(async()=>byLabel("TextInput","Account ID da Cloudflare").props.onChangeText("a".repeat(32)));
+  await act(async()=>{press("Testar API agora");await pause(30);});
+  assert.ok(hasText("Tradução (PT-BR): Bom dia, como você está?"));
+  assert.ok(hasText("HTTP 200"));
+  await act(async()=>press("Salvar API"));
+  assert.equal(storage.cloudflareAccountId,"a".repeat(32));
+  await act(async()=>press("Estatísticas"));
+  assert.ok(settings.root.findAllByType("View").some(x=>x.props.style?.flexDirection==="column" && x.props.style?.alignItems==="stretch"));
+  assert.ok(hasText("Provedor / modelo salvo")); 
+  await act(async()=>press("API"));
   await act(async()=>{press("Gemini"); storage.autoTranslate=true;await pause(30);});
   for (const tab of ["API","Estatísticas","Filtros","Tradução"]) {
     await act(async()=>{

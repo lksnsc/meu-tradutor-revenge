@@ -77,7 +77,7 @@ function notifyStats(): void {
   }, 0);
 }
 
-function translate(text: string, targetLang: LangCode, signal: AbortSignal): Promise<string> {
+function translate(text: string, targetLang: LangCode, signal: AbortSignal, outgoing = false): Promise<string> {
   const provider = storage.provider;
   const sessionStats = stats;
   let started = false;
@@ -88,6 +88,8 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
     apiKey: storage.apiKeys[provider] ?? "",
     model: provider === "deepl" ? undefined : storage.models[provider],
     customEndpoint: storage.customEndpoint,
+    cloudflareAccountId: storage.cloudflareAccountId,
+    sourceLang: outgoing ? storage.cloudflareOutgoingSource : storage.cloudflareIncomingSource,
     signal,
     onRequest: () => {
       sessionStats.apiStatus = "Solicitação em andamento";
@@ -106,7 +108,7 @@ function translate(text: string, targetLang: LangCode, signal: AbortSignal): Pro
 }
 
 function cacheKey(id: string): string {
-  return id + ":" + storage.provider + ":" + storage.targetLang + ":" + (storage.provider === "deepl" ? "" : storage.models[storage.provider]);
+  return id + ":" + storage.provider + ":" + storage.targetLang + ":" + (storage.provider === "deepl" ? "" : storage.models[storage.provider]) + (storage.provider === "cloudflare" ? ":" + storage.cloudflareIncomingSource + ":" + storage.cloudflareAccountId : "");
 }
 
 function removeCached(key: string): void {
@@ -261,7 +263,7 @@ function pumpQueue(): void {
   const pause = translationPause(storage.provider, model);
   if (pause) return;
   for (const id of Array.from(queue)) {
-    if (inFlight.size >= (["gemini", "groq", "openrouter-free"].includes(storage.provider) ? 1 : MAX_INFLIGHT)) break;
+    if (inFlight.size >= (["gemini", "groq", "openrouter-free", "cloudflare"].includes(storage.provider) ? 1 : MAX_INFLIGHT)) break;
     if (inFlight.has(cacheKey(id))) continue;
     queue.delete(id);
     startTranslation(id, controller, session);
@@ -403,7 +405,7 @@ function interceptSend(args: SendArgs, original: (...args: SendArgs) => unknown)
   if (!controller) return send(source);
   const target = shortcut ? PREFIX_LANGUAGES[shortcut] : storage.outgoingLang;
 
-  return translate(source, target, controller.signal).catch(() => {
+  return translate(source, target, controller.signal, true).catch(() => {
     if (!controller.signal.aborted) notifyUser("Erro ao traduzir; enviando texto original.");
     return source;
   }).then(send);

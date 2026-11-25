@@ -323,6 +323,9 @@ function ProviderFields({
   const modelState = React.useState(savedModel);
   const model = modelState[0];
   const setModel = modelState[1];
+  const accountState = React.useState(cleanString(storage.cloudflareAccountId));
+  const account = accountState[0];
+  const setAccount = accountState[1];
   const endpointState = React.useState(cleanString(storage.customEndpoint));
   const endpoint = endpointState[0];
   const setEndpoint = endpointState[1];
@@ -397,9 +400,11 @@ function ProviderFields({
       const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
       const nextEndpoint = provider === "custom" ? cleanString(endpoint) : undefined;
       if (!nextKey) throw new Error("Informe a chave de API antes de testar.");
+      const nextAccount = cleanString(account);
       stage = "requisição e tradução";
       const request = translateText(sample, {
         provider, targetLang: "PT-BR", apiKey: nextKey, model: nextModel, customEndpoint: nextEndpoint,
+        cloudflareAccountId: nextAccount, sourceLang: "EN",
         onResponse: function recordStatus(status) { if (typeof status === "number") httpStatus = status; },
       });
       request.then(function receiveTranslation(result) {
@@ -417,6 +422,7 @@ function ProviderFields({
         storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
         if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
         if (provider === "custom") storage.customEndpoint = nextEndpoint ?? "";
+        if (provider === "cloudflare") storage.cloudflareAccountId = nextAccount;
         storage.provider = provider;
         storage.autoTranslate = true;
         Promise.resolve(onIncomingChange(true)).then(function activated() {
@@ -431,12 +437,16 @@ function ProviderFields({
     const nextKey = cleanString(apiKey);
     const nextModel = provider === "deepl" ? "" : selectedModel(provider, model);
     const nextEndpoint = provider === "custom" ? cleanString(endpoint) : "";
+    const nextAccount = cleanString(account);
+    if (provider === "cloudflare" && !/^[a-f0-9]{32}$/i.test(nextAccount)) { setTestResult("Informe o Account ID válido da Cloudflare."); return; }
     if (nextKey !== (storage.apiKeys[provider] ?? "")
       || nextModel !== savedModel
-      || (provider === "custom" && nextEndpoint !== storage.customEndpoint)) {
+      || (provider === "custom" && nextEndpoint !== storage.customEndpoint)
+      || (provider === "cloudflare" && nextAccount !== storage.cloudflareAccountId)) {
       storage.apiKeys = { ...storage.apiKeys, [provider]: nextKey };
       if (provider !== "deepl") storage.models = { ...storage.models, [provider]: nextModel };
       if (provider === "custom") storage.customEndpoint = nextEndpoint;
+      if (provider === "cloudflare") storage.cloudflareAccountId = nextAccount;
       onIncomingChange(true);
     }
     showToast("Configuração da API salva.");
@@ -446,9 +456,27 @@ function ProviderFields({
     <View>
       <ApiInput label="Chave de API" value={apiKey} onChange={setApiKey}
         placeholder="Cole a sua chave" secure />
-      {provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && (
+      {provider !== "deepl" && provider !== "gemini" && provider !== "groq" && provider !== "openrouter-free" && provider !== "cloudflare" && (
         <ApiInput label="Modelo" value={model} onChange={setModel}
           placeholder={DEFAULT_MODELS[provider] || "Nome do modelo"} />
+      )}
+      {provider === "cloudflare" && (
+        <View style={styles.modelSection}>
+          <ApiInput label="Account ID da Cloudflare" value={account} onChange={setAccount} placeholder="32 caracteres hexadecimais" />
+          <View style={styles.modelTrigger}>
+            <View style={styles.modelMain}>
+              <Text style={styles.modelEyebrow}>WORKERS AI · COTA GRATUITA</Text>
+              <Text style={styles.modelTitle}>Meta M2M100 1.2B</Text>
+              <Text style={styles.modelId}>{DEFAULT_MODELS.cloudflare}</Text>
+            </View>
+          </View>
+          <Text style={styles.hint}>Use um token Workers AI Read restrito à sua conta. Cota gratuita compartilhada: 10.000 neurônios/dia. O plano pago pode cobrar excedentes. O modelo exige idioma de origem definido.</Text>
+          <Text style={styles.label}>Idioma de origem das mensagens recebidas</Text>
+          <Options labels={LANG_NAMES} value={storage.cloudflareIncomingSource} onChange={value => { storage.cloudflareIncomingSource = value; onIncomingChange(true); }} />
+          <Text style={styles.label}>Idioma de origem das mensagens enviadas</Text>
+          <Options labels={LANG_NAMES} value={storage.cloudflareOutgoingSource} onChange={value => { storage.cloudflareOutgoingSource = value; }} />
+          <Text style={styles.hint}>Teste da API: inglês para português, independentemente dos idiomas dos chats. Obtenha as credenciais em Workers AI → Use REST API.</Text>
+        </View>
       )}
       {(provider === "groq" || provider === "openrouter-free") && (
         <View style={styles.modelSection}>
@@ -589,9 +617,9 @@ function Statistics({ readStats, subscribeStats }: SettingsProps): JSX.Element {
   return (
     <Section title="Estatísticas da sessão">
       {metrics.map(([label, value]) => (
-        <View style={styles.listRow} key={label}>
-          <Text style={styles.listName}>{label}</Text>
-          <Text style={styles.metric}>{value}</Text>
+        <View style={styles.statRow} key={label}>
+          <Text style={styles.statLabel}>{label}</Text>
+          <Text style={styles.statValue}>{String(value)}</Text>
         </View>
       ))}
     </Section>
@@ -609,7 +637,7 @@ export default function Settings(props: SettingsProps): JSX.Element {
     <View style={styles.screen}>
       <View style={styles.header}>
         <Text style={styles.brand}>POLYZILLA</Text>
-        <Text style={styles.hint}>by NSC · R29</Text>
+        <Text style={styles.hint}>by NSC · R30</Text>
         <Text style={styles.tagline}>MONSTRO POLIGLOTA · TRADUÇÃO EM TEMPO REAL</Text>
         <Options labels={themeNames} value={storage.theme ?? "kaiju-dark"} onChange={value => { storage.theme = value; }} />
       </View>
@@ -668,6 +696,9 @@ function makeStyles(colors: typeof palettes["kaiju-dark"]) {
     listName: { flex: 1, color: colors.text, marginRight: 10 },
     remove: { color: colors.danger, fontWeight: "800" },
     metric: { color: colors.text, fontSize: 18, fontWeight: "900" },
+    statRow: { flexDirection: "column", alignItems: "stretch", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.outline },
+    statLabel: { color: colors.muted, fontSize: 12, lineHeight: 17, marginBottom: 4 },
+    statValue: { color: colors.text, fontSize: 15, lineHeight: 21, fontWeight: "700", flexShrink: 1 },
     modelSection: { marginBottom: 14 },
     modelTrigger: { ...edge, borderColor: colors.outline, backgroundColor: colors.input, flexDirection: "row", alignItems: "center", padding: 12, minHeight: 70 },
     modelTriggerOpen: { borderColor: colors.accent },

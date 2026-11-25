@@ -18,6 +18,9 @@ interface PluginStorage {
   applyFilterToOutgoing: boolean;
   provider: ProviderId;
   customEndpoint: string;
+  cloudflareAccountId: string;
+  cloudflareIncomingSource: LangCode;
+  cloudflareOutgoingSource: LangCode;
   apiKeys: Record<ProviderId, string>;
   models: Record<ModelProvider, string>;
 }
@@ -56,9 +59,12 @@ export function initializeSettings(): void {
   storage.applyFilterToOutgoing ??= true;
   storage.provider ??= "gemini";
   if (typeof storage.customEndpoint !== "string") storage.customEndpoint = "";
-  if (!storage.apiKeys || typeof storage.apiKeys !== "object" || Array.isArray(storage.apiKeys)) storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", custom: "" };
+  if (typeof storage.cloudflareAccountId !== "string") storage.cloudflareAccountId = "";
+  if (!["EN","ES","PT-BR"].includes(storage.cloudflareIncomingSource)) storage.cloudflareIncomingSource = "EN";
+  if (!["EN","ES","PT-BR"].includes(storage.cloudflareOutgoingSource)) storage.cloudflareOutgoingSource = "PT-BR";
+  if (!storage.apiKeys || typeof storage.apiKeys !== "object" || Array.isArray(storage.apiKeys)) storage.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", groq: "", "openrouter-free": "", cloudflare: "", custom: "" };
   if (!storage.models || typeof storage.models !== "object" || Array.isArray(storage.models)) storage.models = { ...DEFAULT_MODELS };
-  if (storage.models.groq !== DEFAULT_MODELS.groq || storage.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"]) storage.models = { ...storage.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"] };
+  if (storage.models.groq !== DEFAULT_MODELS.groq || storage.models["openrouter-free"] !== DEFAULT_MODELS["openrouter-free"] || storage.models.cloudflare !== DEFAULT_MODELS.cloudflare) storage.models = { ...storage.models, groq: DEFAULT_MODELS.groq, "openrouter-free": DEFAULT_MODELS["openrouter-free"], cloudflare: DEFAULT_MODELS.cloudflare };
   if (!(storage.provider in PROVIDER_NAMES)) storage.provider = "gemini";
   if (!(storage.targetLang in LANG_NAMES)) storage.targetLang = "PT-BR";
   if (!(storage.outgoingLang in LANG_NAMES)) storage.outgoingLang = "EN";

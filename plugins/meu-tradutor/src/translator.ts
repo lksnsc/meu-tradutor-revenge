@@ -1,4 +1,4 @@
-export type ProviderId = "gemini" | "deepl" | "openai" | "deepseek" | "openrouter" | "groq" | "openrouter-free" | "custom";
+export type ProviderId = "gemini" | "deepl" | "openai" | "deepseek" | "openrouter" | "groq" | "openrouter-free" | "cloudflare" | "custom";
 export type LangCode = "PT-BR" | "EN" | "ES";
 export type ModelProvider = Exclude<ProviderId, "deepl">;
 
@@ -8,6 +8,8 @@ export interface TranslatorConfig {
   apiKey: string;
   model?: string;
   customEndpoint?: string;
+  cloudflareAccountId?: string;
+  sourceLang?: LangCode;
   signal?: AbortSignal;
   onRequest?: () => void;
   onResponse?: (status: number) => void;
@@ -24,6 +26,7 @@ export const DEFAULT_MODELS: Record<ModelProvider, string> = {
   openrouter: "google/gemini-2.5-flash",
   groq: "qwen/qwen3.8-27b",
   "openrouter-free": "openrouter/free",
+  cloudflare: "@cf/meta/m2m100-1.2b",
   custom: "",
 };
 
@@ -35,6 +38,7 @@ export const PROVIDER_NAMES: Record<ProviderId, string> = {
   openrouter: "OpenRouter",
   groq: "Groq (plano Free)",
   "openrouter-free": "OpenRouter gratuito",
+  cloudflare: "Cloudflare Workers AI",
   custom: "Personalizado",
 };
 
@@ -153,7 +157,7 @@ export class TranslationRequestError extends Error {
 }
 const pauses = new Map<string, { until: number; reason: string }>();
 export function selectedModel(provider: ModelProvider, model?: string): string {
-  if (provider === "groq" || provider === "openrouter-free") return DEFAULT_MODELS[provider];
+  if (provider === "groq" || provider === "openrouter-free" || provider === "cloudflare") return DEFAULT_MODELS[provider];
   return cleanString(model) || DEFAULT_MODELS[provider];
 }
 function pauseKey(provider: ProviderId, model?: string): string {
@@ -298,6 +302,26 @@ export function translateText(text: string, config: TranslatorConfig): Promise<s
     return restored;
   }
 
+  if (provider === "cloudflare") {
+    const account = cleanString(config.cloudflareAccountId);
+    if (!/^[a-f0-9]{32}$/i.test(account)) throw new Error("Informe o Account ID da Cloudflare (32 caracteres hexadecimais).");
+    const codes: Record<LangCode, string> = { "PT-BR": "pt", EN: "en", ES: "es" };
+    const source = config.sourceLang || "EN";
+    if (!codes[source] || !codes[targetLang]) throw new Error("Idioma de origem ou destino inválido.");
+    if (source === targetLang) return Promise.resolve(text);
+    return postJson<{success?: boolean; result?: {translated_text?: string}; errors?: {code?: number}[]}>(
+      "https://api.cloudflare.com/client/v4/accounts/" + account + "/ai/run/" + DEFAULT_MODELS.cloudflare,
+      { Authorization: "Bearer " + apiKey },
+      { text: protectedText.text, source_lang: codes[source], target_lang: codes[targetLang] },
+      config
+    ).then(function parseCloudflare(response) {
+      if (response?.success !== true) {
+        const code = response?.errors?.[0]?.code;
+        throw new TranslationRequestError("Cloudflare recusou a tradução" + (typeof code === "number" ? " (código " + code + ")" : "") + ".");
+      }
+      return complete(response.result?.translated_text);
+    });
+  }
   if (provider === "deepl") {
     const endpoint = apiKey.endsWith(":fx") ? "https://api-free.deepl.com" : "https://api.deepl.com";
     return postJson<{

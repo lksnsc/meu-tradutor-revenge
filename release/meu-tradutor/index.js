@@ -842,13 +842,22 @@ var __plugin = (() => {
       }
     }, "refreshCatalog");
     const matchingModels = Object.keys(catalog).filter((id) => (id + " " + catalog[id]).toLowerCase().includes(query.trim().toLowerCase()));
-    const testApi = /* @__PURE__ */ __name(async () => {
+    const testApi = /* @__PURE__ */ __name(async (activate = false) => {
       if (testing) return;
       setTesting(true);
       setTestResult("Consultando o provedor...");
       try {
         const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
-        setTestResult("Resposta da API: " + result);
+        if (!result.trim() || result.trim().toLowerCase() === "good morning, how are you?") throw new Error("O modelo n\xE3o traduziu a frase de teste.");
+        if (activate) {
+          storage2.apiKeys = { ...storage2.apiKeys, [provider]: apiKey.trim() };
+          if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: model.trim() };
+          if (provider === "custom") storage2.customEndpoint = endpoint.trim();
+          storage2.provider = provider;
+          storage2.autoTranslate = true;
+          onIncomingChange(true);
+        }
+        setTestResult("Resposta da API: " + result + (activate ? " \xB7 Configura\xE7\xE3o salva e tradu\xE7\xE3o autom\xE1tica ativada. Os filtros atuais foram mantidos." : ""));
       } catch (error) {
         setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
       } finally {
@@ -860,8 +869,8 @@ var __plugin = (() => {
       const nextModel = model.trim();
       const nextEndpoint = endpoint.trim();
       if (nextKey !== (storage2.apiKeys[provider] ?? "") || nextModel !== savedModel || provider === "custom" && nextEndpoint !== storage2.customEndpoint) {
-        storage2.apiKeys[provider] = nextKey;
-        if (provider !== "deepl") storage2.models[provider] = nextModel;
+        storage2.apiKeys = { ...storage2.apiKeys, [provider]: nextKey };
+        if (provider !== "deepl") storage2.models = { ...storage2.models, [provider]: nextModel };
         if (provider === "custom") storage2.customEndpoint = nextEndpoint;
         onIncomingChange(true);
       }
@@ -912,7 +921,9 @@ var __plugin = (() => {
       }
     ), /* @__PURE__ */ React.createElement(Button, { label: "Salvar API", onPress: save }), /* @__PURE__ */ React.createElement(Button, { label: testing ? "Testando..." : "Testar API agora", onPress: () => {
       void testApi();
-    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "O teste envia apenas uma frase de exemplo, n\xE3o mensagens do Discord. Pode consumir cota da API."), !!testResult && /* @__PURE__ */ React.createElement(Text, { style: styles.text }, testResult));
+    } }), /* @__PURE__ */ React.createElement(Button, { label: testing ? "Testando..." : "Testar, salvar e ativar tradu\xE7\xE3o", onPress: () => {
+      void testApi(true);
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "O teste envia apenas uma frase de exemplo. Ao escolher ativar, o texto dos chats permitidos pelos filtros ser\xE1 enviado ao provedor configurado. Pode consumir cota da API."), !!testResult && /* @__PURE__ */ React.createElement(Text, { style: styles.text }, testResult));
   }
   __name(ProviderFields, "ProviderFields");
   function Api({ onIncomingChange }) {
@@ -937,6 +948,9 @@ var __plugin = (() => {
       return unsubscribe;
     }, [readStats2, subscribeStats2]);
     const metrics = [
+      ["Tradu\xE7\xE3o autom\xE1tica", stats2.enabled ? "ATIVADA" : "DESATIVADA"],
+      ["Provedor / modelo salvo", stats2.providerModel],
+      ["Mensagens aguardando tradu\xE7\xE3o", stats2.queued],
       ["Motor de recebimento", stats2.incomingStatus],
       ["Motor de envio", stats2.outgoingStatus],
       ["Eventos de exibi\xE7\xE3o capturados", stats2.observed],
@@ -1021,11 +1035,12 @@ var __plugin = (() => {
   var translationCache = /* @__PURE__ */ new Map();
   var cacheSources = /* @__PURE__ */ new Map();
   var failed = /* @__PURE__ */ new Map();
+  var retries = /* @__PURE__ */ new Map();
   var inFlight = /* @__PURE__ */ new Set();
   var queue = /* @__PURE__ */ new Set();
   var pendingRenders = /* @__PURE__ */ new Set();
   var statsListeners = /* @__PURE__ */ new Set();
-  var emptyStats = { observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+  var emptyStats = { queued: 0, enabled: false, providerModel: "", observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
   var stats = { ...emptyStats };
   var statsTimer;
   var renderTimer;
@@ -1046,7 +1061,7 @@ var __plugin = (() => {
   function readStats() {
     const model = storage2.provider === "deepl" ? void 0 : storage2.models?.[storage2.provider];
     const pause = translationPause(storage2.provider, model);
-    return { ...stats, cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s." : stats.lastError };
+    return { ...stats, queued: queue.size, enabled: storage2.autoTranslate, providerModel: storage2.provider + (model ? " / " + model : ""), cachedMessages: translationCache.size, lastError: pause ? pause.reason + " Pausa restante: " + Math.ceil((pause.until - Date.now()) / 1e3) + " s." : stats.lastError };
   }
   __name(readStats, "readStats");
   function subscribeStats(listener) {
@@ -1119,14 +1134,25 @@ var __plugin = (() => {
     return translationCache.get(key);
   }
   __name(getCached, "getCached");
-  function dispatchMessage(original) {
+  function dispatchMessage(original, verify) {
     try {
       const dispatched = FluxDispatcher?.dispatch({ type: "MESSAGE_UPDATE", message: { ...original, channel_id: original.channel_id ?? original.channelId } });
-      void Promise.resolve(dispatched).catch((error) => {
+      void Promise.resolve(dispatched).then(() => {
+        if (!verify || !outgoingController) return;
+        const observed = visibleMessages.get(verify.id);
+        const current = stores.messages?.getMessage(verify.channelId, verify.id);
+        if (current?.content === verify.expected && observed && !observed.translated) {
+          observed.translated = true;
+          stats.rendered++;
+          notifyStats();
+        }
+      }).catch((error) => {
         stats.lastError = "Atualiza\xE7\xE3o local: " + describeError(error);
         notifyStats();
       });
-    } catch {
+    } catch (error) {
+      stats.lastError = "Atualiza\xE7\xE3o local: " + describeError(error);
+      notifyStats();
     }
   }
   __name(dispatchMessage, "dispatchMessage");
@@ -1171,7 +1197,7 @@ var __plugin = (() => {
           if (current && current.content === original.content) {
             if (appliedLocally.size < MAX_CACHED || appliedLocally.has(messageId)) {
               appliedLocally.set(messageId, { original, translated: cached, channelId: observed.channelId });
-              dispatchMessage({ ...current, content: cached, channel_id: observed.channelId });
+              dispatchMessage({ ...current, content: cached, channel_id: observed.channelId }, { id: messageId, channelId: observed.channelId, expected: cached });
             }
           } else if (!current) {
             dispatchMessage(original);
@@ -1208,10 +1234,19 @@ var __plugin = (() => {
       const current = visibleMessages.get(id);
       const currentOriginal = readOriginal(observed.channelId, id);
       if (controller.signal.aborted || !current || current.source !== source || currentOriginal && currentOriginal.content !== source || !canTranslateIncoming(current) || cacheKey(id) !== key) return;
+      retries.delete(key);
+      stats.lastError = "";
       cacheTranslation(key, source, translated);
       if (translated !== source && isSelected(current.channelId)) scheduleRender(id);
-    }).catch(() => {
+    }).catch((error) => {
       if (!controller.signal.aborted && visibleMessages.get(id)?.source === source) {
+        const temporary = error instanceof TranslationRequestError && (error.status === 429 || error.status === 503) || !!translationPause(storage2.provider, storage2.provider === "deepl" ? void 0 : storage2.models[storage2.provider]);
+        const attempt = retries.get(key) ?? 0;
+        if (temporary && attempt < 2) {
+          retries.set(key, attempt + 1);
+          queue.add(id);
+          return;
+        }
         if (failed.size >= MAX_CACHED) {
           const oldest = failed.keys().next().value;
           if (oldest !== void 0) failed.delete(oldest);
@@ -1297,6 +1332,7 @@ var __plugin = (() => {
   function scanSelectedChannel() {
     if (!outgoingController || !storage2.autoTranslate || !storage2.apiKeys[storage2.provider]?.trim()) return;
     try {
+      if (!stores.selectedChannel || !stores.messages?.getMessages) findStores();
       const channelId = stores.selectedChannel?.getChannelId();
       if (!channelId || !shouldTranslateChannel(channelId)) return;
       const raw = stores.messages?.getMessages?.(channelId);
@@ -1314,6 +1350,8 @@ var __plugin = (() => {
     } catch (error) {
       stats.lastError = "Hist\xF3rico local: " + describeError(error);
       notifyStats();
+    } finally {
+      pumpQueue();
     }
   }
   __name(scanSelectedChannel, "scanSelectedChannel");
@@ -1324,6 +1362,7 @@ var __plugin = (() => {
     incomingController = new AbortController();
     queue.clear();
     failed.clear();
+    retries.clear();
     if (resetCache) {
       translationCache.clear();
       cacheSources.clear();
@@ -1475,6 +1514,7 @@ var __plugin = (() => {
     translationCache.clear();
     cacheSources.clear();
     failed.clear();
+    retries.clear();
     queue.clear();
     inFlight.clear();
     pendingRenders.clear();

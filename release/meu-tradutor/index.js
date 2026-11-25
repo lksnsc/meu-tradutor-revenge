@@ -1213,7 +1213,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R32"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC \xB7 R33"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -1293,6 +1293,7 @@ var __plugin = (() => {
   // plugins/meu-tradutor/src/draft.ts
   var DELAY = 5e3;
   var TYPE = 0;
+  var inputs;
   var reader;
   var writer;
   var timer;
@@ -1305,7 +1306,7 @@ var __plugin = (() => {
   var lastLookup = 0;
   var setStatus = /* @__PURE__ */ __name(() => {
   }, "setStatus");
-  var strongPT = new Set("ol\xE1 obrigado obrigada obrigada\xE7o valeu voc\xEA voc\xEAs n\xE3o sim gente hoje amanh\xE3 ontem ent\xE3o tamb\xE9m portugu\xEAs brasileiro brasileira desculpa desculpe beleza cad\xEA t\xF4 t\xE1 n\xE9 pra pro pelo pela pelos pelas comigo contigo conosco consigo estou estamos est\xE3o estar tava estava fui sou somos s\xE3o tem temos tenho tinha t\xEAm quero queremos queria vou vamos v\xE3o vai vamo posso podemos pode consegue resolveu resolvi chegou cheguei falou fala falar fa\xE7o fazer fiz feito ainda muito muita muitos muitas mais menos mesmo mesma agora pronto pronta prontinho coisa coisas alguma algum algu\xE9m ningu\xE9m tudo nada isso isto esse essa esses essas aquele aquela aqueles aquelas aqui a\xED l\xE1 qual quais quando quanto quantos como porque pois precisa precisar preciso precisando mensagem mensagens texto tradu\xE7\xE3o tradu\xE7\xF5es traduzir traduzido enviando enviar enviado escrevi escrever escrevendo trabalhando trabalho dinheiro jogador jogo jogos compras comprar boa bom boas bons bem demais legal bacana cara pessoal galera irm\xE3o irm\xE3os porra caralho \xF3timo \xF3tima parab\xE9ns saudade sa\xFAde noite tarde dia certo certeza errado consigo conhe\xE7o sei sabe sabemos achar acho achei".split(" "));
+  var strongPT = new Set("precisei precisamos precisou criar criei criou usar usando usei fim contas deu certo assim espero esperamos esperando esperar esperava consegui conseguimos conseguir conversa conversar conversando consigo conseguir para pelo menos mesmo verdade realmente funciona funcionou funcionando problema problemas resolvido resolvidos resolver todos todas conosco nosso nossa obrigado obrigada feito feita consegui consegui ol\xE1 obrigado obrigada obrigada\xE7o valeu voc\xEA voc\xEAs n\xE3o sim gente hoje amanh\xE3 ontem ent\xE3o tamb\xE9m portugu\xEAs brasileiro brasileira desculpa desculpe beleza cad\xEA t\xF4 t\xE1 n\xE9 pra pro pelo pela pelos pelas comigo contigo conosco consigo estou estamos est\xE3o estar tava estava fui sou somos s\xE3o tem temos tenho tinha t\xEAm quero queremos queria vou vamos v\xE3o vai vamo posso podemos pode consegue resolveu resolvi chegou cheguei falou fala falar fa\xE7o fazer fiz feito ainda muito muita muitos muitas mais menos mesmo mesma agora pronto pronta prontinho coisa coisas alguma algum algu\xE9m ningu\xE9m tudo nada isso isto esse essa esses essas aquele aquela aqueles aquelas aqui a\xED l\xE1 qual quais quando quanto quantos como porque pois precisa precisar preciso precisando mensagem mensagens texto tradu\xE7\xE3o tradu\xE7\xF5es traduzir traduzido enviando enviar enviado escrevi escrever escrevendo trabalhando trabalho dinheiro jogador jogo jogos compras comprar boa bom boas bons bem demais legal bacana cara pessoal galera irm\xE3o irm\xE3os porra caralho \xF3timo \xF3tima parab\xE9ns saudade sa\xFAde noite tarde dia certo certeza errado consigo conhe\xE7o sei sabe sabemos achar acho achei".split(" "));
   var strongOther = new Set("hello thanks thank you your yours yours good morning night evening what which where when why how this that those these there their they them we are were is was have has had will would could should can cannot not yes no please ready real time and the for from with about because really very just now already everyone anybody anything everything hola gracias buenos buenas d\xEDas tardes noches usted ustedes vosotros estoy estamos est\xE1is tengo tienes tenemos quiero quieres queremos puedo puedes podemos ahora ma\xF1ana ayer entonces tambi\xE9n espa\xF1ol espa\xF1ola necesito necesitas habla hablar hablo hecho hice listo lista vale qu\xE9 qui\xE9n cu\xE1ndo d\xF3nde c\xF3mo aqu\xED all\xED muy mucho muchas muchos nuestras nuestros vuestro vuestra mensaje mensajes traducci\xF3n traducir enviar escrito escribiendo dinero jugador juego juegos comprar compras hermano salud perd\xF3n disculpe genial".split(" "));
   function likelyPortuguese(text) {
     const value = cleanString(text);
@@ -1335,6 +1336,13 @@ var __plugin = (() => {
     if (Date.now() - lastLookup < 2e3 && lastLookup !== 0) return;
     lastLookup = Date.now();
     try {
+      if (!inputs) {
+        const host = findByProps("getBestActiveInputForChannelId");
+        if (typeof host?.getBestActiveInputForChannelId === "function") inputs = host;
+      }
+    } catch {
+    }
+    try {
       if (!reader) {
         const candidate = findByStoreName?.("DraftStore") ?? findByProps("getDraft", "getRecentlyEditedDrafts");
         const host = candidate;
@@ -1348,7 +1356,31 @@ var __plugin = (() => {
     }
   }
   __name(lookup, "lookup");
+  function activeInput(channel) {
+    try {
+      return inputs?.getBestActiveInputForChannelId(channel);
+    } catch {
+      return void 0;
+    }
+  }
+  __name(activeInput, "activeInput");
+  function readLive(input) {
+    try {
+      const method = input.getText ?? input.getValue ?? input.getDraft;
+      if (typeof method !== "function") return void 0;
+      const value = method.call(input);
+      return typeof value === "string" ? value : void 0;
+    } catch {
+      return void 0;
+    }
+  }
+  __name(readLive, "readLive");
   function read(channel) {
+    if (inputs) {
+      const input = activeInput(channel);
+      if (!input) return void 0;
+      return readLive(input);
+    }
     try {
       const value = reader?.getDraft(channel, TYPE);
       if (value === null || value === void 0) return reader ? "" : void 0;
@@ -1359,13 +1391,25 @@ var __plugin = (() => {
     }
   }
   __name(read, "read");
+  function write(candidate, text) {
+    const input = candidate.input;
+    if (input) {
+      const method = input.setText ?? input.setValue ?? input.setDraft;
+      if (typeof method === "function") return method.call(input, text);
+      if (writer) return writer.saveDraft(candidate.channel, TYPE, text);
+      throw new Error("Compositor n\xE3o oferece substitui\xE7\xE3o de texto");
+    }
+    if (!writer) throw new Error("A\xE7\xE3o saveDraft indispon\xEDvel");
+    return writer.saveDraft(candidate.channel, TYPE, text);
+  }
+  __name(write, "write");
   function cancel() {
     controller?.abort();
     controller = void 0;
   }
   __name(cancel, "cancel");
   function current(candidate) {
-    return sample === candidate && stores.selectedChannel?.getChannelId() === candidate.channel && configKey() === candidate.config && allowed(candidate.channel) && read(candidate.channel) === candidate.text;
+    return sample === candidate && stores.selectedChannel?.getChannelId() === candidate.channel && configKey() === candidate.config && allowed(candidate.channel) && activeInput(candidate.channel) === candidate.input && read(candidate.channel) === candidate.text;
   }
   __name(current, "current");
   function tick(translate2) {
@@ -1386,33 +1430,33 @@ var __plugin = (() => {
       setStatus(!storage2.translateDraft ? "Desativada" : !channel ? "Aguardando canal" : storage2.outgoingLang === "PT-BR" ? "Destino j\xE1 \xE9 portugu\xEAs" : "Canal ou API n\xE3o habilitados");
       return;
     }
-    if (!reader || !writer) lookup();
-    if (!reader || !writer) {
+    if (!inputs || !reader || !writer) lookup();
+    if (!inputs && (!reader || !writer)) {
       setStatus("Caixa de texto indispon\xEDvel nesta vers\xE3o do Discord");
       return;
     }
+    const input = activeInput(channel);
     const text = read(channel);
     if (text === void 0) {
       cancel();
       sample = void 0;
       baseline = true;
-      setStatus("Formato de rascunho n\xE3o reconhecido");
+      setStatus(inputs ? input ? "Compositor encontrado, leitura de texto indispon\xEDvel" : "Aguardando caixa de texto ativa" : "Formato de rascunho n\xE3o reconhecido");
       return;
     }
     if (baseline) {
       baseline = false;
-      sample = { channel, text, config: key, since: Date.now(), attempted: true };
-      setStatus("Aguardando nova digita\xE7\xE3o");
-      return;
+      sample = { channel, text, config: key, since: Date.now(), attempted: !input, input };
+      setStatus(input ? "Compositor ativo localizado" : "Aguardando nova digita\xE7\xE3o");
     }
     if (applied?.channel === channel && applied.text === text && applied.config === key) {
-      setStatus("Tradu\xE7\xE3o no rascunho confirmada");
+      setStatus(input ? "Tradu\xE7\xE3o confirmada no compositor ativo" : "Tradu\xE7\xE3o confirmada no rascunho salvo");
       return;
     }
-    if (sample?.text !== text) {
+    if (sample?.text !== text || sample?.input !== input) {
       cancel();
       applied = void 0;
-      sample = { channel, text, config: key, since: Date.now(), attempted: false };
+      sample = { channel, text, config: key, since: Date.now(), attempted: false, input };
     }
     const candidate = sample;
     if (!candidate || candidate.attempted) return;
@@ -1437,10 +1481,10 @@ var __plugin = (() => {
       }
       const next = { channel, text: result, config: key };
       applied = next;
-      return Promise.resolve(writer?.saveDraft(channel, TYPE, result)).then(() => {
+      return Promise.resolve(write(candidate, result)).then(() => {
         if (request.signal.aborted || sample !== candidate || stores.selectedChannel?.getChannelId() !== channel) return;
         if (read(channel) === result) {
-          setStatus("Tradu\xE7\xE3o no rascunho confirmada");
+          setStatus(input ? "Tradu\xE7\xE3o confirmada no compositor ativo" : "Tradu\xE7\xE3o confirmada no rascunho salvo");
           return;
         }
         applied = void 0;
@@ -1481,13 +1525,14 @@ var __plugin = (() => {
     lastLookup = 0;
     reader = void 0;
     writer = void 0;
+    inputs = void 0;
   }
   __name(stopDraftTranslation, "stopDraftTranslation");
   function draftBeforeSend(channel, text) {
     const wasTranslated = applied?.channel === channel && applied.text === text;
     if (activeChannel === channel) {
       cancel();
-      sample = { channel, text: read(channel) ?? text, config: activeConfig, since: Date.now(), attempted: true };
+      sample = { channel, text: read(channel) ?? text, config: activeConfig, since: Date.now(), attempted: true, input: activeInput(channel) };
       applied = void 0;
     }
     return wasTranslated;

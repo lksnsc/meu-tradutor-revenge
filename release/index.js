@@ -193,7 +193,7 @@ var __plugin = (() => {
 
   // plugins/meu-tradutor/src/translator.ts
   var DEFAULT_MODELS = {
-    gemini: "gemini-2.5-flash",
+    gemini: "gemini-3.5-flash-lite",
     openai: "gpt-4o-mini",
     deepseek: "deepseek-chat",
     openrouter: "google/gemini-2.5-flash",
@@ -217,7 +217,7 @@ var __plugin = (() => {
     deepseek: "https://api.deepseek.com/chat/completions",
     openrouter: "https://openrouter.ai/api/v1/chat/completions"
   };
-  var REQUEST_TIMEOUT = 15e3;
+  var REQUEST_TIMEOUT = 3e4;
   var discordToken = /(\x60{3,})(?!\x60)[\s\S]*?(?:\1(?!\x60)|(?![\s\S]))|(\x60{1,2})(?!\x60)[^\r\n]*?\2(?!\x60)|<(?:(?:@!?|@&|#)\d+|a?:[\w-]+:\d+|t:-?\d+(?::[tTdDfFR])?|\/[^>:\r\n]+:\d+|(?:https?:\/\/|discord:\/\/)[^\s<>]+)>|(?:@everyone|@here)\b|(?:\]\()(?:\\.|[^()\r\n\\]|\([^()\r\n]*\))+\)|(?:https?:\/\/|discord:\/\/|www\.)(?:[^<>\s\x60\[\]()*|]|\([^()<>\s\x60]+\))*(?:[^<>\s\x60\[\]()*|.,!?:;]|\([^()<>\s\x60]+\))|^[ \t]*(?:#{1,3}|>>>?|[-+*]|\d+[.)])(?=[ \t])[ \t]+|[ \t]*\r?\n[ \t]*|\\[\\*_~|\x60[\]()#!+.\->]|[*_~|]+|[\[\]]/gim;
   var keycap = /[0-9#*]\uFE0F?\u20E3/g;
   var textCharacter;
@@ -435,6 +435,7 @@ var __plugin = (() => {
     storage2.customEndpoint ?? (storage2.customEndpoint = "");
     storage2.apiKeys ?? (storage2.apiKeys = { gemini: "", deepl: "", openai: "", deepseek: "", openrouter: "", custom: "" });
     storage2.models ?? (storage2.models = { ...DEFAULT_MODELS });
+    if (storage2.models.gemini === "gemini-2.5-flash") storage2.models.gemini = DEFAULT_MODELS.gemini;
   }
   __name(initializeSettings, "initializeSettings");
   function findStore(name, method) {
@@ -697,6 +698,25 @@ var __plugin = (() => {
     const endpointState = React.useState(storage2.customEndpoint);
     const endpoint = endpointState[0];
     const setEndpoint = endpointState[1];
+    const testState = React.useState("");
+    const testResult = testState[0];
+    const setTestResult = testState[1];
+    const testingState = React.useState(false);
+    const testing = testingState[0];
+    const setTesting = testingState[1];
+    const testApi = /* @__PURE__ */ __name(async () => {
+      if (testing) return;
+      setTesting(true);
+      setTestResult("Consultando o provedor...");
+      try {
+        const result = await translateText("Good morning, how are you?", { provider, targetLang: "PT-BR", apiKey: apiKey.trim(), model: model.trim(), customEndpoint: endpoint.trim() });
+        setTestResult("Resposta da API: " + result);
+      } catch (error) {
+        setTestResult("Falha: " + (error instanceof Error ? error.message : String(error)));
+      } finally {
+        setTesting(false);
+      }
+    }, "testApi");
     const save = /* @__PURE__ */ __name(() => {
       const nextKey = apiKey.trim();
       const nextModel = model.trim();
@@ -735,7 +755,9 @@ var __plugin = (() => {
         placeholder: "https://exemplo.com/v1/chat/completions",
         url: true
       }
-    ), /* @__PURE__ */ React.createElement(Button, { label: "Salvar API", onPress: save }));
+    ), /* @__PURE__ */ React.createElement(Button, { label: "Salvar API", onPress: save }), /* @__PURE__ */ React.createElement(Button, { label: testing ? "Testando..." : "Testar API agora", onPress: () => {
+      void testApi();
+    } }), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "O teste envia apenas uma frase de exemplo, n\xE3o mensagens do Discord. Pode consumir cota da API."), !!testResult && /* @__PURE__ */ React.createElement(Text, { style: styles.text }, testResult));
   }
   __name(ProviderFields, "ProviderFields");
   function Api({ onIncomingChange }) {
@@ -760,6 +782,11 @@ var __plugin = (() => {
       return unsubscribe;
     }, [readStats2, subscribeStats2]);
     const metrics = [
+      ["Motor de recebimento", stats2.incomingStatus],
+      ["Motor de envio", stats2.outgoingStatus],
+      ["Eventos de exibi\xE7\xE3o capturados", stats2.observed],
+      ["Tradu\xE7\xF5es aplicadas na tela", stats2.rendered],
+      ["\xDAltimo erro da tradu\xE7\xE3o", stats2.lastError || "Nenhum registrado"],
       ["Chamadas \xE0 API", stats2.apiCalls],
       ["Requisi\xE7\xF5es em andamento", stats2.pending],
       ["Leituras do cache", stats2.cacheHits],
@@ -779,7 +806,7 @@ var __plugin = (() => {
     const tabState = React.useState("traducao");
     const tab = tabState[0];
     const setTab = tabState[1];
-    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
+    return /* @__PURE__ */ React.createElement(View, { style: styles.screen }, /* @__PURE__ */ React.createElement(View, { style: styles.header }, /* @__PURE__ */ React.createElement(Text, { style: styles.brand }, "POLYZILLA"), /* @__PURE__ */ React.createElement(Text, { style: styles.hint }, "by NSC"), /* @__PURE__ */ React.createElement(Text, { style: styles.tagline }, "MONSTRO POLIGLOTA \xB7 TRADU\xC7\xC3O EM TEMPO REAL"), /* @__PURE__ */ React.createElement(Options, { labels: themeNames, value: storage2.theme ?? "kaiju-dark", onChange: (value) => {
       storage2.theme = value;
     } })), /* @__PURE__ */ React.createElement(View, { style: styles.tabs }, Object.keys(tabs).map((key) => /* @__PURE__ */ React.createElement(
       Pressable,
@@ -843,7 +870,7 @@ var __plugin = (() => {
   var queue = /* @__PURE__ */ new Set();
   var pendingRenders = /* @__PURE__ */ new Set();
   var statsListeners = /* @__PURE__ */ new Set();
-  var emptyStats = { apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
+  var emptyStats = { observed: 0, rendered: 0, incomingStatus: "Aguardando conex\xE3o", outgoingStatus: "Aguardando conex\xE3o", lastError: "", apiCalls: 0, pending: 0, cacheHits: 0, cachedMessages: 0, errors: 0 };
   var stats = { ...emptyStats };
   var statsTimer;
   var renderTimer;
@@ -897,7 +924,10 @@ var __plugin = (() => {
         notifyStats();
       }, "onRequest")
     }).catch((error) => {
-      if (!signal.aborted) sessionStats.errors++;
+      if (!signal.aborted) {
+        sessionStats.errors++;
+        sessionStats.lastError = describeError(error);
+      }
       throw error;
     }).finally(() => {
       if (started) sessionStats.pending--;
@@ -1004,6 +1034,8 @@ var __plugin = (() => {
   }
   __name(pumpQueue, "pumpQueue");
   function interceptRow(args) {
+    stats.observed++;
+    notifyStats();
     const row = args[0];
     const rowMessage = row?.message;
     if (!row || !rowMessage?.id || typeof rowMessage.content !== "string" || !rowMessage.content) return;
@@ -1037,6 +1069,8 @@ var __plugin = (() => {
       if (cached !== observed.source) {
         args[0] = { ...row, message: { ...message, content: cached } };
         observed.translated = true;
+        stats.rendered++;
+        notifyStats();
       }
       return;
     }
@@ -1148,8 +1182,10 @@ var __plugin = (() => {
         const undo = before("generate", prototype, interceptRow);
         if (typeof undo !== "function") throw new Error("patcher.before n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
         unpatchRowManager = undo;
+        stats.incomingStatus = "Intercepta\xE7\xE3o instalada";
       } catch (error) {
         incomingError = describeError(error);
+        stats.incomingStatus = incomingError;
       }
     }
     if (!unpatchSendMessage) {
@@ -1159,10 +1195,13 @@ var __plugin = (() => {
         const undo = instead("sendMessage", actions, interceptSend);
         if (typeof undo !== "function") throw new Error("patcher.instead n\xE3o retornou fun\xE7\xE3o de remo\xE7\xE3o");
         unpatchSendMessage = undo;
+        stats.outgoingStatus = "Intercepta\xE7\xE3o instalada";
       } catch (error) {
         outgoingError = describeError(error);
+        stats.outgoingStatus = outgoingError;
       }
     }
+    notifyStats();
     if (unpatchRowManager && unpatchSendMessage) return;
     if (attempt < 3) {
       hookRetry = setTimeout(() => installHooks(attempt + 1), 1500);
